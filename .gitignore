@@ -9,3 +9,4 @@ sdkconfig.shock
 sdkconfig.shock.old
 docs/*.pdf
 .tmp/
+release/
