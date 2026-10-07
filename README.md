@@ -25,15 +25,15 @@ cd /mnt/c/Claude/shock_test
 ~/.espvenv/bin/pio run          # väljund: ~/.cache/shock_test/build/shock/
 ```
 
-## Uuendamine üle WiFi (tavaline)
+## Püsivara uuendamine
 
-Plaat ühendub klientvõrku (seadetes „Klientvõrk“; esimesel käivitusel võetakse browser-püsivara WiFi), IP `/tmp/shock_ip`.
+Kasutaja: laadi `firmware.bin` alla [Releases](https://github.com/eplik82/shock_test/releases) lehelt,
+ühenda telefon seadme WiFi-ga (`ShockTest-XXXX`, parool on ekraani kollasel real), ava portaal → „Püsivara“ →
+vali fail → „Laadi üles“. Kui uus versioon ei kinnitu 20 s jooksul, taastab alglaadur eelmise.
 
-```bash
-tools/ota.sh <plaadi IP>        # saadab firmware.bin -> /api/ota, ootab taaskäivitust
-```
-Kasutaja: portaal http://4.3.2.1 → „Püsivara“ → vali `firmware.bin` → „Laadi üles“.
-Kui uus versioon ei kinnitu 20 s jooksul, taastab alglaadur eelmise.
+Väljaanne: `git tag vX.Y.Z && git push origin vX.Y.Z` → GitHub Actions ehitab ja avaldab release'i.
+
+WiFi on **ainult pääsupunkt** (4.3.2.1). Klientvõrk on välja lülitatud: AP+STA jagas raadioaega ja portaal jäi valgeks.
 
 ## USB välgutus (partitsioonitabeli/alglaaduri muutus)
 
@@ -46,9 +46,13 @@ Skript saadab seeriakäsu `dl` (allalaadimisrežiim ilma nuppudeta); kui plaat e
 
 ## Arendus ja testimine
 
+Arendaja käsud töötavad pääsupunkti kaudu (IP 4.3.2.1); seeriapordis on `[net]` read (DHCP, DNS, HTTP) portaali silumiseks.
+
 | Käsk | Mis |
 |---|---|
 | `curl http://IP/api/status` | olek, valimisagedus, I2C diagnostika |
+| `curl http://IP/dev/log` | portaali sündmuste logi (DHCP, DNS, HTTP) |
+| `curl http://IP/dev/tasks`, `/dev/wifi` | protsessoriaeg, WiFi olek (RSSI, ribalaius) |
 | `tools/shot.py pilt.png` | ekraanipilt |
 | `curl "http://IP/dev/tap?x=100&y=453"` | puudutus |
 | `curl "http://IP/dev/sim?a10=500&td100=1100&axis=2"` | simuleeritud löök 50,0 g / 11,00 ms Z-teljel |
@@ -66,3 +70,6 @@ Ilma andurita töötab seade simulatsioonirežiimis (1 g Z-teljel + müra); `sim
 - Adafruit ADXL375 toide **Vin** viiku (mitte 3Vo).
 - Seeriapordi (CH343) avamine/sulgemine võib plaadi lähtestada; eelista WiFi-t (`/api/status`, `tools/shot.py`).
 - Taustvalgus lülitatakse sisse kohe käivitusel (hilisem sisselülitus CH422G kaudu langes kokku lähtestustsükliga).
+- Captive portaal: DHCP peab pakkuma DNS-i (valik enne aadressi), muidu Android „ühendatud ilma internetita“.
+  Pärast portaali lehe laadimist vastatakse kliendi internetikontrollidele 204/Success, et telefon jääks võrku.
+- Pärast USB-välgutust võib plaat jääda vaikseks → kaabel välja ja tagasi.
