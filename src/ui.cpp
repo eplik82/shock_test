@@ -11,6 +11,8 @@
 #include "board.h"
 #include "clock.h"
 #include "fonts.h"
+#include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -197,8 +199,62 @@ static void modal_close(lv_obj_t *p)
 }
 
 // ---------------------------------------------------------------------------
-// Testi vaade
+// Käivituslogo (src/logo.rle: RGB565 RLE, tools/make_logo.py)
+extern const uint8_t logo_rle_start[] asm("_binary_logo_rle_start");
+extern const uint8_t logo_rle_end[] asm("_binary_logo_rle_end");
+static lv_obj_t *s_splash;
 static lv_obj_t *s_scr_test, *s_scr_set;
+static uint16_t *s_splash_px;
+static lv_image_dsc_t s_splash_dsc;
+static int64_t s_splash_t0;
+
+void ui_splash_show(void)
+{
+    s_splash_px = (uint16_t *)heap_caps_malloc(LCD_W * LCD_H * 2, MALLOC_CAP_SPIRAM);
+    if (!s_splash_px) return;
+    size_t o = 0;
+    for (const uint8_t *p = logo_rle_start; p + 3 < logo_rle_end && o < (size_t)LCD_W * LCD_H; p += 4) {
+        uint16_t n = p[0] | (p[1] << 8), v = p[2] | (p[3] << 8);
+        while (n-- && o < (size_t)LCD_W * LCD_H) s_splash_px[o++] = v;
+    }
+    s_splash_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    s_splash_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+    s_splash_dsc.header.w = LCD_W;
+    s_splash_dsc.header.h = LCD_H;
+    s_splash_dsc.header.stride = LCD_W * 2;
+    s_splash_dsc.data = (const uint8_t *)s_splash_px;
+    s_splash_dsc.data_size = LCD_W * LCD_H * 2;
+    s_splash = lv_obj_create(nullptr);
+    lv_obj_remove_flag(s_splash, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(s_splash, lv_color_hex(0x262a2e), 0);
+    lv_obj_t *img = lv_image_create(s_splash);
+    lv_image_set_src(img, &s_splash_dsc);
+    lv_obj_center(img);
+    lv_screen_load(s_splash);
+    lv_refr_now(nullptr);
+    board_backlight(true);
+    s_splash_t0 = esp_timer_get_time();
+}
+
+void ui_splash_done(int min_ms)
+{
+    if (!s_splash) return;
+    int64_t left = (int64_t)min_ms * 1000 - (esp_timer_get_time() - s_splash_t0);
+    if (left > 0) vTaskDelay(pdMS_TO_TICKS(left / 1000));
+    LvGuard g;
+    lv_screen_load_anim(s_scr_test, LV_SCR_LOAD_ANIM_FADE_IN, 300, 0, true);  // true: logo ekraan kustutatakse
+    s_splash = nullptr;
+    // pildipuhver vabastatakse pärast üleminekut
+    lv_timer_t *t = lv_timer_create([](lv_timer_t *tm) {
+        heap_caps_free(s_splash_px);
+        s_splash_px = nullptr;
+        lv_timer_delete(tm);
+    }, 1000, nullptr);
+    (void)t;
+}
+
+// ---------------------------------------------------------------------------
+// Testi vaade
 static lv_obj_t *s_preset_l, *s_wifi_l, *s_banner, *s_res_box, *s_res_l, *s_peak_l, *s_lim_l, *s_bar, *s_mk_min,
     *s_mk_max, *s_td_l, *s_dv_l, *s_shape_l, *s_reason_l, *s_chart, *s_chart_y, *s_series_l, *s_live_l, *s_btn_arm,
     *s_btn_undo, *s_btn_end, *s_btn_new, *s_sat_l;
@@ -1042,7 +1098,7 @@ void ui_init(void)
     lv_obj_add_event_cb(s_kb, kb_event, LV_EVENT_ALL, nullptr);
     lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
 
-    lv_screen_load(s_scr_test);
+    if (!s_splash) lv_screen_load(s_scr_test);
     lv_obj_update_layout(s_scr_test);
     clear_result();
     ui_refresh();

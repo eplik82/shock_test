@@ -150,6 +150,10 @@ extern "C" void app_main(void)
     STEP(settings_load());
     STEP(clock_init());
     STEP(lvport_init());  // plaat (I2C, ekraan, puude) + LVGL
+    {
+        LvGuard g;
+        STEP(ui_splash_show());
+    }
     STEP(ui_init());
     {
         // esimesel käivitusel vormindatakse 9,9 MB andmepartitsioon (võib kesta minuteid)
@@ -165,6 +169,7 @@ extern "C" void app_main(void)
     STEP(adxl_init(g_set.odr));
     STEP(shock_init(ui_on_shot));
     STEP(net_init());
+    ui_splash_done(2500);
     xTaskCreate(ota_validate_task, "otaval", 3072, nullptr, 1, nullptr);
     check_rollback();
     // pooleli seeria jätkub peatatuna (kasutaja vajutab "Valmis")

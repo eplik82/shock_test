@@ -10,3 +10,6 @@ void ui_message(const char *title, const char *text);
 void ui_message_close(void);
 // löögi tulemus (kutsutakse löögi lõimest, lukustab ise)
 void ui_on_shot(const ShotResult &r);
+// käivituslogo (enne ui_init): näidatakse kuni ui_splash_done(), vähemalt min_ms
+void ui_splash_show(void);
+void ui_splash_done(int min_ms);
