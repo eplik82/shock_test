@@ -155,15 +155,10 @@ extern "C" void app_main(void)
         STEP(ui_splash_show());
     }
     STEP(ui_init());
-    {
-        // esimesel käivitusel vormindatakse 9,9 MB andmepartitsioon (võib kesta minuteid)
-        LvGuard g;
-        ui_message(TR("Käivitus", "Starting"), TR("Avan andmemälu ... (esimesel korral vormindamine, kuni 2 min)", "Opening data storage ... (first time formatting, up to 2 min)"));
-    }
+    // esimesel käivitusel vormindatakse 9,9 MB andmepartitsioon (logo jääb selle ajaks ekraanile)
     STEP(store_init());
     {
         LvGuard g;
-        ui_message_close();
         ui_refresh();
     }
     STEP(adxl_init(g_set.odr));
