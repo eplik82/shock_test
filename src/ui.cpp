@@ -735,9 +735,11 @@ static void build_settings(void)
     num_row(TR("Kalibreerimistegur Z", "Calibration factor Z"), &s_edit.cal[2], nullptr, 4, 0.5f, 2);
     header("WiFi");
     s_ta_appass = text_row(TR("Pääsupunkti parool (≥ 8 märki, tühi = avatud)", "Access point password (≥ 8 chars, empty = open)"), 32);
-    s_ta_ssid = text_row(TR("Klientvõrk (valikuline, arendus)", "Client network (optional, development)"), 32);
-    s_ta_spass = text_row(TR("Klientvõrgu parool", "Client network password"), 64);
-    lv_textarea_set_password_mode(s_ta_spass, true);
+    // klientvõrk välja lülitatud: väljad peidetud (seaded jäävad alles)
+    s_ta_ssid = textarea(s_set_list, 10, false, 32);
+    s_ta_spass = textarea(s_set_list, 10, false, 64);
+    lv_obj_add_flag(s_ta_ssid, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s_ta_spass, LV_OBJ_FLAG_HIDDEN);
     lv_obj_t *inf = label(s_set_list, font_reg(14), C_MUT, "");
     lv_label_set_text_fmt(inf, "%s v%s", FW_NAME, FW_VERSION);
 }

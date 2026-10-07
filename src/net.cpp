@@ -111,6 +111,50 @@ static void dns_task(void *)
 }
 
 // ---------------- HTTP abi ----------------
+static uint32_t peer_ip(httpd_req_t *r)
+{
+    sockaddr_in6 a = {};
+    socklen_t l = sizeof(a);
+    if (getpeername(httpd_req_to_sockfd(r), (sockaddr *)&a, &l) != 0) return 0;
+    if (a.sin6_family == AF_INET) return ((sockaddr_in *)&a)->sin_addr.s_addr;
+    return a.sin6_addr.un.u32_addr[3];
+}
+
+// "Sisse logitud" kliendid (portaali leht laaditud): nende internetikontrollidele vastatakse "internet olemas",
+// et telefon jääks võrku ja allalaadimine käiks WiFi kaudu (Samsung viskab "ilma internetita" võrgust välja)
+static uint32_t s_auth[8];
+static portMUX_TYPE s_auth_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static void auth_add(uint32_t ip)
+{
+    if (!ip) return;
+    taskENTER_CRITICAL(&s_auth_lock);
+    bool have = false;
+    for (uint32_t a : s_auth) have |= a == ip;
+    if (!have) {
+        static int next;
+        s_auth[next] = ip;
+        next = (next + 1) % 8;
+    }
+    taskEXIT_CRITICAL(&s_auth_lock);
+}
+
+static bool auth_has(uint32_t ip)
+{
+    bool r = false;
+    taskENTER_CRITICAL(&s_auth_lock);
+    for (uint32_t a : s_auth) r |= ip && a == ip;
+    taskEXIT_CRITICAL(&s_auth_lock);
+    return r;
+}
+
+static void auth_clear(void)
+{
+    taskENTER_CRITICAL(&s_auth_lock);
+    for (uint32_t &a : s_auth) a = 0;
+    taskEXIT_CRITICAL(&s_auth_lock);
+}
+
 static void log_req(httpd_req_t *r, const char *what)
 {
     sockaddr_in6 a = {};
@@ -161,12 +205,31 @@ static esp_err_t index_get(httpd_req_t *r)
     httpd_resp_set_type(r, "text/html; charset=utf-8");
     httpd_resp_set_hdr(r, "Cache-Control", "no-store");
     httpd_resp_set_hdr(r, "Content-Encoding", "gzip");
-    return httpd_resp_send(r, (const char *)index_gz_start, index_gz_end - index_gz_start);
+    int64_t t0 = esp_timer_get_time();
+    esp_err_t e = httpd_resp_send(r, (const char *)index_gz_start, index_gz_end - index_gz_start);
+    netlog("leht saadetud: %s, %d ms", esp_err_to_name(e), (int)((esp_timer_get_time() - t0) / 1000));
+    return e;
 }
 
 // Telefonide internetikontrollid ja tundmatud aadressid -> portaal
 static esp_err_t redirect(httpd_req_t *r)
 {
+    if (auth_has(peer_ip(r))) {
+        const char *u = r->uri;
+        if (strstr(u, "generate_204") || strstr(u, "gen_204")) {
+            log_req(r, "-> 204");
+            httpd_resp_set_status(r, "204 No Content");
+            return httpd_resp_send(r, "", 0);
+        }
+        if (strstr(u, "hotspot-detect") || strstr(u, "success.html") || strstr(u, "library/test")) {
+            log_req(r, "-> Success");
+            return httpd_resp_send(r, "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>", HTTPD_RESP_USE_STRLEN);
+        }
+        if (strstr(u, "connecttest.txt")) return httpd_resp_send(r, "Microsoft Connect Test", HTTPD_RESP_USE_STRLEN);
+        if (strstr(u, "ncsi.txt")) return httpd_resp_send(r, "Microsoft NCSI", HTTPD_RESP_USE_STRLEN);
+        if (strstr(u, "canonical.html")) return httpd_resp_send(r, "<meta http-equiv=\"refresh\" content=\"0;url=https://support.mozilla.org/kb/captive-portal\"/>", HTTPD_RESP_USE_STRLEN);
+        if (strstr(u, "success.txt")) return httpd_resp_send(r, "success\n", HTTPD_RESP_USE_STRLEN);
+    }
     log_req(r, "-> 302");
     httpd_resp_set_status(r, "302 Found");
     httpd_resp_set_hdr(r, "Location", "http://" AP_IP_STR "/");
@@ -180,6 +243,7 @@ static esp_err_t redirect(httpd_req_t *r)
 
 static esp_err_t status_get(httpd_req_t *r)
 {
+    if (s_clients) log_req(r, "olek");
     char b[900];
     size_t used, total;
     store_usage(&used, &total);
@@ -207,6 +271,8 @@ static esp_err_t time_post(httpd_req_t *r)
         httpd_resp_send_err(r, HTTPD_400_BAD_REQUEST, "vale aeg");
         return ESP_FAIL;
     }
+    auth_add(peer_ip(r));
+    log_req(r, "kell");
     bool was = clock_valid();
     clock_set(ms, tz);
     store_backfill_time();
@@ -221,6 +287,8 @@ static esp_err_t time_post(httpd_req_t *r)
 
 static esp_err_t tests_get(httpd_req_t *r)
 {
+    auth_add(peer_ip(r));
+    log_req(r, "testid");
     auto list = store_list();
     std::string o = "[";
     for (auto &si : list) {
@@ -258,7 +326,13 @@ static esp_err_t report_get(httpd_req_t *r)
     snprintf(fn, sizeof(fn), "attachment; filename=\"shock_test_%04d_%s.%s\"", id, date.c_str(), csv ? "csv" : "pdf");
     httpd_resp_set_type(r, csv ? "text/csv; charset=utf-8" : "application/pdf");
     httpd_resp_set_hdr(r, "Content-Disposition", fn);
-    return send_str(r, out);
+    char what[48];
+    snprintf(what, sizeof(what), "raport %u B", (unsigned)out.size());
+    log_req(r, what);
+    // Content-Length (mitte tükkidena): allalaadimishaldurid eelistavad teadaolevat suurust
+    esp_err_t e = httpd_resp_send(r, out.data(), out.size());
+    if (e != ESP_OK) netlog("raporti saatmine katkes: %s", esp_err_to_name(e));
+    return e;
 }
 
 static esp_err_t delete_post(httpd_req_t *r)
@@ -538,20 +612,13 @@ static void on_event(void *, esp_event_base_t base, int32_t id, void *data)
             auto *e = (wifi_event_ap_staconnected_t *)data;
             netlog("AP klient " MACSTR, MAC2STR(e->mac));
             // portaali kasutaja: klientvõrk pausile, pääsupunkt saab kogu raadioaja
-            if (s_clients++ == 0 && g_set.sta_ssid[0]) {
-                s_sta_paused = true;
-                esp_wifi_disconnect();
-            }
+            s_clients++;
         } else if (id == WIFI_EVENT_AP_STADISCONNECTED && s_clients > 0) {
-            if (--s_clients == 0 && s_sta_paused) {
-                s_sta_paused = false;
-                esp_wifi_connect();
-            }
-        } else if (id == WIFI_EVENT_STA_START && g_set.sta_ssid[0]) esp_wifi_connect();
-        else if (id == WIFI_EVENT_STA_DISCONNECTED) {
-            s_sta_ip[0] = 0;
-            if (g_set.sta_ssid[0] && !s_sta_paused) esp_wifi_connect();
+            netlog("AP klient lahkus");
+            if (s_clients == 1) auth_clear();
+            --s_clients;
         }
+
     } else if (base == IP_EVENT && id == IP_EVENT_AP_STAIPASSIGNED) {
         auto *e = (ip_event_ap_staipassigned_t *)data;
         netlog("DHCP " IPSTR " -> " MACSTR, IP2STR(&e->ip), MAC2STR(e->mac));
@@ -580,12 +647,7 @@ void net_apply_settings(void)
         ap.ap.authmode = WIFI_AUTH_OPEN;
     }
     esp_wifi_set_config(WIFI_IF_AP, &ap);
-    wifi_config_t sta = {};
-    strlcpy((char *)sta.sta.ssid, g_set.sta_ssid, sizeof(sta.sta.ssid));
-    strlcpy((char *)sta.sta.password, g_set.sta_pass, sizeof(sta.sta.password));
-    esp_wifi_set_config(WIFI_IF_STA, &sta);
-    esp_wifi_disconnect();
-    if (g_set.sta_ssid[0]) esp_wifi_connect();
+
 }
 
 void net_init(void)
@@ -622,13 +684,13 @@ void net_init(void)
     char ssid[32];
     snprintf(ssid, sizeof(ssid), "ShockTest-%02X%02X", mac[4], mac[5]);
     s_ssid = ssid;
-    esp_wifi_set_mode(WIFI_MODE_APSTA);
+    // ainult pääsupunkt (klientvõrk välja lülitatud: jagas raadioaega, portaal oli aeglane)
+    esp_wifi_set_mode(WIFI_MODE_AP);
     net_apply_settings();
     esp_wifi_start();
     esp_wifi_set_ps(WIFI_PS_NONE);  // energiasääst aeglustas OTA-d (~8 KB/s)
     // HT20: HT40 2,4 GHz-l (müra + ekraani häired) andis palju kordusedastusi, portaal ~2-5 KB/s
     esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
-    esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
     xTaskCreatePinnedToCore(dns_task, "dns", 4096, nullptr, 3, nullptr, 0);
     http_start();
     ESP_LOGI(TAG, "pääsupunkt %s", s_ssid.c_str());
