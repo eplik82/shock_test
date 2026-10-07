@@ -39,8 +39,9 @@ static std::string fmtf(float v, int dec)
 {
     char b[32];
     snprintf(b, sizeof(b), "%.*f", dec, v);
-    for (char *p = b; *p; p++)
-        if (*p == '.') *p = ',';
+    if (!g_set.lang)
+        for (char *p = b; *p; p++)
+            if (*p == '.') *p = ',';
     return b;
 }
 
@@ -217,7 +218,7 @@ static void update_limits(void)
     std::string t = "min " + fmtf(A * (1 - s.tol_peak / 100), 1) + " g     max " + fmtf(A * (1 + s.tol_peak / 100), 1) + " g";
     lv_label_set_text(s_lim_l, t.c_str());
     if (A * (1 + s.tol_peak / 100) > ADXL_RANGE_G) {
-        lv_label_set_text(s_sat_l, "Ülemine piir ületab anduri mõõtepiiri 200 g");
+        lv_label_set_text(s_sat_l, TR("Ülemine piir ületab anduri mõõtepiiri 200 g", "Upper limit exceeds sensor range 200 g"));
         lv_obj_remove_flag(s_sat_l, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_sat_l, LV_OBJ_FLAG_HIDDEN);
@@ -237,13 +238,13 @@ static void show_state_box(void)
     const char *t;
     lv_color_t c;
     if (!store_has_open()) {
-        t = "ALUSTA SEERIAT";
+        t = TR("ALUSTA SEERIAT", "START A SERIES");
         c = C_LINE;
     } else if (st == SH_ARMED || st == SH_CAPTURING) {
-        t = "OOTAB LÖÖKI";
+        t = TR("OOTAB LÖÖKI", "WAITING FOR SHOCK");
         c = C_ACC;
     } else {
-        t = "PEATATUD";
+        t = TR("PEATATUD", "PAUSED");
         c = C_LINE;
     }
     lv_label_set_text(s_res_l, t);
@@ -253,7 +254,7 @@ static void show_state_box(void)
 static void show_result(void)
 {
     const ShotResult &r = s_last;
-    lv_label_set_text(s_res_l, r.pass ? "LÄBITUD" : "EBAÕNNESTUS");
+    lv_label_set_text(s_res_l, r.pass ? TR("LÄBITUD", "PASS") : TR("EBAÕNNESTUS", "FAIL"));
     lv_obj_set_style_bg_color(s_res_box, r.pass ? C_OK : C_BAD, 0);
     std::string pk = fmtf(r.peak, 1) + " g";
     lv_label_set_text(s_peak_l, pk.c_str());
@@ -267,7 +268,7 @@ static void show_result(void)
     lv_label_set_text(s_dv_l, t.c_str());
     lv_obj_set_style_text_color(s_dv_l, r.pass_dv ? C_FG : (g_set.dv_check ? C_BAD : C_WARN), 0);
     char b[96];
-    snprintf(b, sizeof(b), "Kuju  %s  ·  %c%c  ·  %d p", r.shape_ok ? "koridoris" : "väljas",
+    snprintf(b, sizeof(b), TR("Kuju  %s  ·  %c%c  ·  %d p", "Shape  %s  ·  %c%c  ·  %d pts"), r.shape_ok ? TR("koridoris", "in band") : TR("väljas", "outside"),
              r.polarity > 0 ? '+' : '-', 'X' + r.axis, r.pulse_samples);
     lv_label_set_text(s_shape_l, b);
     lv_obj_set_style_text_color(s_shape_l, r.shape_ok ? C_FG : (g_set.shape_check ? C_BAD : C_WARN), 0);
@@ -302,7 +303,7 @@ static void clear_result(void)
     lv_bar_set_value(s_bar, 0, LV_ANIM_OFF);
     lv_label_set_text(s_td_l, "TD   —");
     lv_label_set_text(s_dv_l, "ΔV   —");
-    lv_label_set_text(s_shape_l, "Kuju  —");
+    lv_label_set_text(s_shape_l, TR("Kuju  —", "Shape  —"));
     lv_obj_set_style_text_color(s_td_l, C_FG, 0);
     lv_obj_set_style_text_color(s_dv_l, C_FG, 0);
     lv_obj_set_style_text_color(s_shape_l, C_FG, 0);
@@ -320,7 +321,7 @@ static void update_series(void)
 {
     char b[200];
     if (!store_has_open()) {
-        snprintf(b, sizeof(b), "Avatud seeriat pole. Seaded: %s, %s g / %s ms", preset_name(g_set.preset),
+        snprintf(b, sizeof(b), TR("Avatud seeriat pole. Seaded: %s, %s g / %s ms", "No open series. Settings: %s, %s g / %s ms"), preset_name(g_set.preset),
                  fmtf(g_set.peak_g, 1).c_str(), fmtf(g_set.td_ms, 2).c_str());
         lv_obj_add_state(s_btn_undo, LV_STATE_DISABLED);
         lv_obj_add_state(s_btn_end, LV_STATE_DISABLED);
@@ -329,10 +330,10 @@ static void update_series(void)
         int dir, num;
         store_next_pos(&dir, &num);
         if (store_series_complete())
-            snprintf(b, sizeof(b), "Seeria #%lu %s · kõik %u lööki tehtud · läbitud %u", (unsigned long)si.id,
+            snprintf(b, sizeof(b), TR("Seeria #%lu %s · kõik %u lööki tehtud · läbitud %u", "Series #%lu %s · all %u shocks done · passed %u"), (unsigned long)si.id,
                      si.object, si.shots, si.passed);
         else
-            snprintf(b, sizeof(b), "Seeria #%lu %s · järgmine: %s %d/%u · %u/%u lööki · läbitud %u",
+            snprintf(b, sizeof(b), TR("Seeria #%lu %s · järgmine: %s %d/%u · %u/%u lööki · läbitud %u", "Series #%lu %s · next: %s %d/%u · %u/%u shocks · passed %u"),
                      (unsigned long)si.id, si.object, DIR_NAMES[dir], num, si.shots_per_dir, si.shots,
                      si.shots_per_dir * 6, si.passed);
         if (si.shots) lv_obj_remove_state(s_btn_undo, LV_STATE_DISABLED);
@@ -341,7 +342,7 @@ static void update_series(void)
     }
     lv_label_set_text(s_series_l, b);
     bool armed = shock_state() != SH_IDLE;
-    button_text(s_btn_arm, armed ? LV_SYMBOL_PAUSE "  Peata" : LV_SYMBOL_PLAY "  Valmis");
+    button_text(s_btn_arm, armed ? TR(LV_SYMBOL_PAUSE "  Peata", LV_SYMBOL_PAUSE "  Pause") : TR(LV_SYMBOL_PLAY "  Valmis", LV_SYMBOL_PLAY "  Ready"));
     lv_obj_set_style_bg_color(s_btn_arm, armed ? C_WARN : C_OK, 0);
     lv_label_set_text(s_preset_l, preset_name(g_set.preset));
 }
@@ -384,7 +385,7 @@ static void build_test(void)
     lv_obj_remove_flag(sc, LV_OBJ_FLAG_SCROLLABLE);
 
     // ülariba
-    lv_obj_t *t = label(sc, font_bold(24), C_FG, "Löögitest");
+    lv_obj_t *t = label(sc, font_bold(24), C_FG, TR("Löögitest", "Shock test"));
     lv_obj_set_pos(t, 12, 10);
     s_preset_l = label(sc, font_reg(18), C_MUT, "");
     lv_obj_set_pos(s_preset_l, 150, 14);
@@ -449,7 +450,7 @@ static void build_test(void)
 
     // graafik
     lv_obj_t *rp = panel(sc, 346, 88, 446, 316);
-    lv_obj_t *ct = label(rp, font_reg(14), C_MUT, "sinine = mõõdetud · hall = nominaal · punane = koridor");
+    lv_obj_t *ct = label(rp, font_reg(14), C_MUT, TR("sinine = mõõdetud · hall = nominaal · punane = koridor", "blue = measured · grey = nominal · red = band"));
     lv_obj_set_pos(ct, 0, -4);
     s_chart = lv_chart_create(rp);
     lv_obj_set_pos(s_chart, 48, 16);
@@ -469,7 +470,7 @@ static void build_test(void)
     s_chart_y = label(rp, font_reg(14), C_MUT, "");
     lv_obj_set_pos(s_chart_y, 0, 12);
     lv_obj_set_style_text_line_space(s_chart_y, 12, 0);
-    lv_obj_t *cx = label(rp, font_reg(14), C_MUT, "−0,4·TD                    impulss                         +2·TD");
+    lv_obj_t *cx = label(rp, font_reg(14), C_MUT, TR("−0,4·TD                    impulss                         +2·TD", "−0.4·TD                    pulse                           +2·TD"));
     lv_obj_set_pos(cx, 60, 288);
 
     // alumine riba
@@ -479,13 +480,13 @@ static void build_test(void)
     lv_label_set_long_mode(s_series_l, LV_LABEL_LONG_DOT);
     s_live_l = label(sc, font_reg(16), C_MUT, "");
     lv_obj_align(s_live_l, LV_ALIGN_TOP_RIGHT, -12, 410);
-    s_btn_new = button(sc, LV_SYMBOL_PLUS "  Uus seeria", C_ACC, 190, 44, on_new);
+    s_btn_new = button(sc, TR(LV_SYMBOL_PLUS "  Uus seeria", LV_SYMBOL_PLUS "  New series"), C_ACC, 190, 44, on_new);
     lv_obj_set_pos(s_btn_new, 8, 432);
     s_btn_arm = button(sc, "", C_OK, 190, 44, on_arm);
     lv_obj_set_pos(s_btn_arm, 206, 432);
-    s_btn_undo = button(sc, LV_SYMBOL_BACKSPACE "  Tühista viimane", C_LINE, 220, 44, on_undo);
+    s_btn_undo = button(sc, TR(LV_SYMBOL_BACKSPACE "  Tühista viimane", LV_SYMBOL_BACKSPACE "  Undo last"), C_LINE, 220, 44, on_undo);
     lv_obj_set_pos(s_btn_undo, 404, 432);
-    s_btn_end = button(sc, LV_SYMBOL_OK "  Lõpeta", C_LINE, 160, 44, on_end);
+    s_btn_end = button(sc, TR(LV_SYMBOL_OK "  Lõpeta", LV_SYMBOL_OK "  Finish"), C_LINE, 160, 44, on_end);
     lv_obj_set_pos(s_btn_end, 632, 432);
 }
 
@@ -500,6 +501,7 @@ struct NumField {
     float mn, mx;
 };
 static std::vector<NumField> s_fields;
+static lv_obj_t *s_dd_lang;
 static lv_obj_t *s_set_list, *s_dd_preset, *s_dd_amax, *s_dd_axis, *s_dd_odr, *s_sw_shape, *s_sw_dv, *s_sw_un,
     *s_ta_appass, *s_ta_ssid, *s_ta_spass, *s_set_info, *s_row_mass;
 
@@ -509,6 +511,7 @@ static void fields_to_ui(void)
         float v = f.f ? *f.f : *f.u8;
         lv_textarea_set_text(f.ta, fmtf(v, f.dec).c_str());
     }
+    lv_dropdown_set_selected(s_dd_lang, s_edit.lang);
     lv_dropdown_set_selected(s_dd_preset, s_edit.preset);
     lv_dropdown_set_selected(s_dd_amax, s_edit.amax == 166 ? 1 : 0);
     lv_dropdown_set_selected(s_dd_axis, s_edit.axis);
@@ -524,10 +527,10 @@ static void fields_to_ui(void)
     else lv_obj_add_flag(s_row_mass, LV_OBJ_FLAG_HIDDEN);
     float up = s_edit.peak_g * (1 + s_edit.tol_peak / 100);
     char b[200];
-    snprintf(b, sizeof(b), "Piirid: %s … %s g, TD %s … %s ms%s", fmtf(s_edit.peak_g * (1 - s_edit.tol_peak / 100), 1).c_str(),
+    snprintf(b, sizeof(b), TR("Piirid: %s … %s g, TD %s … %s ms%s", "Limits: %s … %s g, TD %s … %s ms%s"), fmtf(s_edit.peak_g * (1 - s_edit.tol_peak / 100), 1).c_str(),
              fmtf(up, 1).c_str(), fmtf(s_edit.td_ms * (1 - s_edit.tol_td / 100), 2).c_str(),
              fmtf(s_edit.td_ms * (1 + s_edit.tol_td / 100), 2).c_str(),
-             up > ADXL_RANGE_G ? "\nHOIATUS: ülemine piir ületab anduri mõõtepiiri 200 g" : "");
+             up > ADXL_RANGE_G ? TR("\nHOIATUS: ülemine piir ületab anduri mõõtepiiri 200 g", "\nWARNING: upper limit exceeds sensor range 200 g") : "");
     lv_label_set_text(s_set_info, b);
 }
 
@@ -540,6 +543,7 @@ static void ui_to_fields(void)
         if (f.f) *f.f = v;
         else *f.u8 = (uint8_t)lroundf(v);
     }
+    s_edit.lang = lv_dropdown_get_selected(s_dd_lang) ? 1 : 0;
     s_edit.amax = lv_dropdown_get_selected(s_dd_amax) == 1 ? 166 : 200;
     s_edit.axis = lv_dropdown_get_selected(s_dd_axis);
     int o = lv_dropdown_get_selected(s_dd_odr);
@@ -620,12 +624,18 @@ static void num_row(const char *txt, float *f, uint8_t *u8, int dec, float mn, f
     s_fields.push_back({ta, f, u8, dec, mn, mx});
 }
 
-static lv_obj_t *dd_row(const char *txt, const char *opts, lv_event_cb_t cb = on_field_changed)
+static lv_obj_t *dd_row(const char *txt, const char *opts, lv_event_cb_t cb = on_field_changed, bool wide = false)
 {
     lv_obj_t *r = row(txt);
     lv_obj_t *dd = lv_dropdown_create(r);
     lv_dropdown_set_options(dd, opts);
     lv_obj_set_width(dd, 300);
+    if (wide) {
+        // pikad valikud: rippmenüü omal real täislaiuses (muidu jääb loend ekraanist välja)
+        lv_obj_set_flex_flow(r, LV_FLEX_FLOW_ROW_WRAP);
+        lv_obj_set_width(dd, LV_PCT(100));
+        lv_obj_set_style_max_height(lv_dropdown_get_list(dd), 300, 0);
+    }
     lv_obj_set_style_text_font(dd, font_reg(18), 0);
     lv_obj_set_style_text_font(lv_dropdown_get_list(dd), font_reg(20), 0);
     lv_obj_add_event_cb(dd, cb, LV_EVENT_VALUE_CHANGED, nullptr);
@@ -650,7 +660,7 @@ static lv_obj_t *text_row(const char *txt, int maxlen)
 static void on_set_save(lv_event_t *)
 {
     ui_to_fields();
-    bool odr_changed = s_edit.odr != g_set.odr;
+    bool odr_changed = s_edit.odr != g_set.odr || s_edit.lang != g_set.lang;  // keel: vaated ehitatakse uuesti
     bool net_changed = strcmp(s_edit.ap_pass, g_set.ap_pass) || strcmp(s_edit.sta_ssid, g_set.sta_ssid) ||
                        strcmp(s_edit.sta_pass, g_set.sta_pass);
     g_set = s_edit;
@@ -658,7 +668,7 @@ static void on_set_save(lv_event_t *)
     kb_hide();
     if (net_changed) net_apply_settings();
     if (odr_changed) {
-        ui_message("Seaded salvestatud", "Valimisagedus muutus — seade taaskäivitub.");
+        ui_message(TR("Seaded salvestatud", "Settings saved"), TR("Seade taaskäivitub ...", "Restarting ..."));
         lv_refr_now(nullptr);
         vTaskDelay(pdMS_TO_TICKS(1500));
         hard_restart();
@@ -679,11 +689,11 @@ static void build_settings(void)
     lv_obj_t *sc = s_scr_set;
     lv_obj_set_style_bg_color(sc, C_BG, 0);
     lv_obj_remove_flag(sc, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *t = label(sc, font_bold(24), C_FG, "Seaded");
+    lv_obj_t *t = label(sc, font_bold(24), C_FG, TR("Seaded", "Settings"));
     lv_obj_set_pos(t, 12, 10);
-    lv_obj_t *b1 = button(sc, LV_SYMBOL_SAVE "  Salvesta", C_OK, 170, 40, on_set_save);
+    lv_obj_t *b1 = button(sc, TR(LV_SYMBOL_SAVE "  Salvesta", LV_SYMBOL_SAVE "  Save"), C_OK, 170, 40, on_set_save);
     lv_obj_align(b1, LV_ALIGN_TOP_RIGHT, -8, 5);
-    lv_obj_t *b2 = button(sc, LV_SYMBOL_CLOSE "  Loobu", C_LINE, 140, 40, on_set_cancel);
+    lv_obj_t *b2 = button(sc, TR(LV_SYMBOL_CLOSE "  Loobu", LV_SYMBOL_CLOSE "  Cancel"), C_LINE, 140, 40, on_set_cancel);
     lv_obj_align(b2, LV_ALIGN_TOP_RIGHT, -186, 5);
 
     s_set_list = lv_obj_create(sc);
@@ -697,34 +707,37 @@ static void build_settings(void)
     lv_obj_set_scroll_dir(s_set_list, LV_DIR_VER);
 
     s_set_info = label(s_set_list, font_reg(16), C_WARN, "");
+    s_dd_lang = dd_row("Keel / Language", "Eesti\nEnglish");
     header("Test");
     std::string opts;
     for (int i = 0; i < PRESET_COUNT; i++) opts += std::string(i ? "\n" : "") + preset_name(i);
-    s_dd_preset = dd_row("Eelseadistus (standard)", opts.c_str(), on_preset);
-    num_row("Aku mass (kg) — UN38.3 valem", &s_edit.mass_kg, nullptr, 3, 0.001f, 1000, &s_row_mass, on_mass);
-    num_row("Nominaalne tipp A (g)", &s_edit.peak_g, nullptr, 1, 5, 200);
-    num_row("Impulsi kestus TD (ms)", &s_edit.td_ms, nullptr, 2, 1, 200);
-    s_dd_amax = dd_row("A ülempiir", "200 g\n166 g (1,2·A mahub anduri piiri)");
-    num_row("Lööke suuna kohta (6 suunda)", nullptr, &s_edit.shots_per_dir, 0, 1, 200);
-    s_dd_axis = dd_row("Mõõtetelg", "Automaatne\nX\nY\nZ");
-    header("Tolerantsid (MIL-STD-810H 516.8)");
-    num_row("Tipp ± (%)", &s_edit.tol_peak, nullptr, 1, 1, 50);
-    num_row("Kestus TD ± (%)", &s_edit.tol_td, nullptr, 1, 1, 50);
-    num_row("Kiiruse muutus ΔV ± (%)", &s_edit.tol_dv, nullptr, 1, 1, 50);
-    num_row("Kuju koridor ± (% A)", &s_edit.band, nullptr, 1, 1, 50);
-    s_sw_shape = sw_row("Kuju koridori kontroll mõjutab otsust");
-    s_sw_dv = sw_row("ΔV kontroll mõjutab otsust");
-    s_sw_un = sw_row("UN38.3 operaatori kontrollid (mass, pinge, visuaalne)");
-    header("Andur");
-    num_row("Käivituslävi (% A)", &s_edit.trig_pct, nullptr, 0, 5, 90);
-    s_dd_odr = dd_row("Valimisagedus (ODR)", "800 Hz\n1600 Hz\n3200 Hz");
-    num_row("Kalibreerimistegur X", &s_edit.cal[0], nullptr, 4, 0.5f, 2);
-    num_row("Kalibreerimistegur Y", &s_edit.cal[1], nullptr, 4, 0.5f, 2);
-    num_row("Kalibreerimistegur Z", &s_edit.cal[2], nullptr, 4, 0.5f, 2);
+    s_dd_preset = dd_row(TR("Eelseadistus (standard)", "Preset (standard)"), opts.c_str(), on_preset, true);
+    num_row(TR("Aku mass (kg) — UN38.3 valem", "Battery mass (kg) — UN38.3 formula"), &s_edit.mass_kg, nullptr, 3, 0.001f, 1000, &s_row_mass, on_mass);
+    num_row(TR("Nominaalne tipp A (g)", "Nominal peak A (g)"), &s_edit.peak_g, nullptr, 1, 5, 200);
+    num_row(TR("Impulsi kestus TD (ms)", "Pulse duration TD (ms)"), &s_edit.td_ms, nullptr, 2, 1, 200);
+    s_dd_amax = dd_row(TR("A ülempiir", "A upper limit"), TR("200 g\n166 g (1,2·A mahub anduri piiri)", "200 g\n166 g (1.2·A fits sensor range)"));
+    num_row(TR("Lööke suuna kohta (6 suunda)", "Shocks per direction (6 directions)"), nullptr, &s_edit.shots_per_dir, 0, 1, 200);
+    s_dd_axis = dd_row(TR("Mõõtetelg", "Measuring axis"), TR("Automaatne\nX\nY\nZ", "Automatic\nX\nY\nZ"));
+    header(TR("Tolerantsid (MIL-STD-810H 516.8)", "Tolerances (MIL-STD-810H 516.8)"));
+    num_row(TR("Tipp ± (%)", "Peak ± (%)"), &s_edit.tol_peak, nullptr, 1, 1, 50);
+    num_row(TR("Kestus TD ± (%)", "Duration TD ± (%)"), &s_edit.tol_td, nullptr, 1, 1, 50);
+    num_row(TR("Kiiruse muutus ΔV ± (%)", "Velocity change ΔV ± (%)"), &s_edit.tol_dv, nullptr, 1, 1, 50);
+    num_row(TR("Kuju koridor ± (% A)", "Shape band ± (% A)"), &s_edit.band, nullptr, 1, 1, 50);
+    s_sw_shape = sw_row(TR("Kuju koridori kontroll mõjutab otsust", "Shape band check affects verdict"));
+    s_sw_dv = sw_row(TR("ΔV kontroll mõjutab otsust", "ΔV check affects verdict"));
+    s_sw_un = sw_row(TR("UN38.3 operaatori kontrollid (mass, pinge, visuaalne)", "UN38.3 operator checks (mass, voltage, visual)"));
+    header(TR("Andur", "Sensor"));
+    num_row(TR("Käivituslävi (% A)", "Trigger level (% A)"), &s_edit.trig_pct, nullptr, 0, 5, 90);
+    num_row(TR("Ooteaeg pärast lööki (s)", "Hold-off after shock (s)"), &s_edit.holdoff_s, nullptr, 1, 0.3f, 30);
+    s_dd_odr = dd_row(TR("Valimisagedus (ODR)", "Sample rate (ODR)"), "800 Hz\n1600 Hz\n3200 Hz");
+    num_row(TR("Kalibreerimistegur X", "Calibration factor X"), &s_edit.cal[0], nullptr, 4, 0.5f, 2);
+    num_row(TR("Kalibreerimistegur Y", "Calibration factor Y"), &s_edit.cal[1], nullptr, 4, 0.5f, 2);
+    num_row(TR("Kalibreerimistegur Z", "Calibration factor Z"), &s_edit.cal[2], nullptr, 4, 0.5f, 2);
     header("WiFi");
-    s_ta_appass = text_row("Pääsupunkti parool (≥ 8 märki, tühi = avatud)", 32);
-    s_ta_ssid = text_row("Klientvõrk (valikuline, arendus)", 32);
-    s_ta_spass = text_row("Klientvõrgu parool", 64);
+    s_ta_appass = text_row(TR("Pääsupunkti parool (≥ 8 märki, tühi = avatud)", "Access point password (≥ 8 chars, empty = open)"), 32);
+    s_ta_ssid = text_row(TR("Klientvõrk (valikuline, arendus)", "Client network (optional, development)"), 32);
+    s_ta_spass = text_row(TR("Klientvõrgu parool", "Client network password"), 64);
+    lv_textarea_set_password_mode(s_ta_spass, true);
     lv_obj_t *inf = label(s_set_list, font_reg(14), C_MUT, "");
     lv_label_set_text_fmt(inf, "%s v%s", FW_NAME, FW_VERSION);
 }
@@ -780,24 +793,24 @@ static void new_series_dialog(void)
     bool un = g_set.un_checks;
     s_dlg = modal(780, un ? 250 : 200, 0);
     lv_obj_t *p = s_dlg;
-    lv_obj_t *t = label(p, font_bold(22), C_FG, "Uus testiseeria");
+    lv_obj_t *t = label(p, font_bold(22), C_FG, TR("Uus testiseeria", "New test series"));
     lv_obj_set_pos(t, 0, 0);
-    s_ta_obj = dlg_field(p, "Katseobjekt", 34, false, 47);
-    s_ta_sn = dlg_field(p, "Seerianumber", 80, false, 31);
-    s_ta_op = dlg_field(p, "Operaator", 126, false, 31);
+    s_ta_obj = dlg_field(p, TR("Katseobjekt", "Test item"), 34, false, 47);
+    s_ta_sn = dlg_field(p, TR("Seerianumber", "Serial number"), 80, false, 31);
+    s_ta_op = dlg_field(p, TR("Operaator", "Operator"), 126, false, 31);
     s_ta_m0 = s_ta_v0 = nullptr;
     int y = 172;
     if (un) {
-        s_ta_m0 = dlg_field(p, "Mass enne (g)", y, true, 12);
-        s_ta_v0 = dlg_field(p, "Pinge (OCV) enne (V)", y + 46, true, 12);
+        s_ta_m0 = dlg_field(p, TR("Mass enne (g)", "Mass before (g)"), y, true, 12);
+        s_ta_v0 = dlg_field(p, TR("Pinge (OCV) enne (V)", "Voltage (OCV) before (V)"), y + 46, true, 12);
         y += 92;
     }
-    lv_obj_t *b1 = button(p, LV_SYMBOL_PLAY "  Alusta", C_OK, 180, 44, on_new_start);
+    lv_obj_t *b1 = button(p, TR(LV_SYMBOL_PLAY "  Alusta", LV_SYMBOL_PLAY "  Start"), C_OK, 180, 44, on_new_start);
     lv_obj_set_pos(b1, 560, y + 4);
-    lv_obj_t *b2 = button(p, "Loobu", C_LINE, 140, 44, on_dlg_cancel);
+    lv_obj_t *b2 = button(p, TR("Loobu", "Cancel"), C_LINE, 140, 44, on_dlg_cancel);
     lv_obj_set_pos(b2, 400, y + 4);
     char b[160];
-    snprintf(b, sizeof(b), "%s\n%s g / %s ms · %u × 6 lööki", preset_name(g_set.preset), fmtf(g_set.peak_g, 1).c_str(),
+    snprintf(b, sizeof(b), TR("%s\n%s g / %s ms · %u × 6 lööki", "%s\n%s g / %s ms · %u × 6 shocks"), preset_name(g_set.preset), fmtf(g_set.peak_g, 1).c_str(),
              fmtf(g_set.td_ms, 2).c_str(), g_set.shots_per_dir);
     lv_obj_t *inf = label(p, font_reg(16), C_MUT, b);
     lv_obj_set_pos(inf, 0, y + 4);
@@ -814,14 +827,13 @@ static void finish_series(void)
     bool pass;
     const char *v = report_verdict(si, &pass);
     char b[300];
-    snprintf(b, sizeof(b), "Seeria #%lu: %s\nLäbitud %u / %u lööki.\n\nRaporti (PDF, CSV) saad alla laadida WiFi kaudu:\n"
-             "võrk „%s“, aadress http://4.3.2.1",
+    snprintf(b, sizeof(b), TR("Seeria #%lu: %s\nLäbitud %u / %u lööki.\n\nRaporti (PDF, CSV) saad alla laadida WiFi kaudu:\nvõrk „%s“, aadress http://4.3.2.1", "Series #%lu: %s\nPassed %u / %u shocks.\n\nDownload the report (PDF, CSV) over WiFi:\nnetwork \"%s\", address http://4.3.2.1"),
              (unsigned long)si.id, v, si.passed, si.shots, net_ap_ssid().c_str());
     store_close_series();
     shock_arm(false);
     clear_result();
     update_series();
-    ui_message("Seeria lõpetatud", b);
+    ui_message(TR("Seeria lõpetatud", "Series finished"), b);
 }
 
 static void on_end_save(lv_event_t *)
@@ -853,17 +865,17 @@ static void end_series_dialog(void)
     s_dlg = modal(780, un ? 250 : 190, un ? 0 : 120);
     lv_obj_t *p = s_dlg;
     char b[160];
-    snprintf(b, sizeof(b), "Lõpeta seeria #%lu?  (%u / %u lööki tehtud)", (unsigned long)si.id, si.shots,
+    snprintf(b, sizeof(b), TR("Lõpeta seeria #%lu?  (%u / %u lööki tehtud)", "Finish series #%lu?  (%u / %u shocks done)"), (unsigned long)si.id, si.shots,
              si.shots_per_dir * 6);
     lv_obj_t *t = label(p, font_bold(22), C_FG, b);
     lv_obj_set_pos(t, 0, 0);
     int y = 40;
     s_ta_m1 = s_ta_v1 = nullptr;
     if (un) {
-        s_ta_m1 = dlg_field(p, "Mass pärast (g)", y, true, 12);
-        s_ta_v1 = dlg_field(p, "Pinge (OCV) pärast (V)", y + 46, true, 12);
+        s_ta_m1 = dlg_field(p, TR("Mass pärast (g)", "Mass after (g)"), y, true, 12);
+        s_ta_v1 = dlg_field(p, TR("Pinge (OCV) pärast (V)", "Voltage (OCV) after (V)"), y + 46, true, 12);
         y += 96;
-        const char *cb[5] = {"Leket pole", "Gaasi eraldumist pole", "Ei lagunenud", "Ei purunenud", "Ei süttinud/plahvatanud"};
+        const char *cb[5] = {TR("Leket pole", "No leakage"), TR("Gaasi eraldumist pole", "No venting"), TR("Ei lagunenud", "No disassembly"), TR("Ei purunenud", "No rupture"), TR("Ei süttinud/plahvatanud", "No fire/explosion")};
         for (int i = 0; i < 5; i++) {
             s_cb[i] = lv_checkbox_create(p);
             lv_checkbox_set_text(s_cb[i], cb[i]);
@@ -873,13 +885,13 @@ static void end_series_dialog(void)
         }
         y += 76;
     } else {
-        lv_obj_t *l = label(p, font_reg(18), C_MUT, "Seeria suletakse; raport jääb alles ja on WiFi portaalist allalaaditav.");
+        lv_obj_t *l = label(p, font_reg(18), C_MUT, TR("Seeria suletakse; raport jääb alles ja on WiFi portaalist allalaaditav.", "The series will be closed; the report stays available in the WiFi portal."));
         lv_obj_set_pos(l, 0, y);
         y += 40;
     }
-    lv_obj_t *b1 = button(p, LV_SYMBOL_OK "  Lõpeta", C_OK, 180, 44, on_end_save);
+    lv_obj_t *b1 = button(p, TR(LV_SYMBOL_OK "  Lõpeta", LV_SYMBOL_OK "  Finish"), C_OK, 180, 44, on_end_save);
     lv_obj_set_pos(b1, 560, y);
-    lv_obj_t *b2 = button(p, "Tagasi", C_LINE, 140, 44, on_dlg_cancel);
+    lv_obj_t *b2 = button(p, TR("Tagasi", "Back"), C_LINE, 140, 44, on_dlg_cancel);
     lv_obj_set_pos(b2, 400, y);
     lv_obj_set_height(p, y + 70);
 }
@@ -923,7 +935,7 @@ void ui_ota_progress(int pct, const char *text)
 {
     if (!s_ota) {
         s_ota = modal(560, 150, 150);
-        lv_obj_t *t = label(s_ota, font_bold(22), C_FG, "Püsivara uuendus");
+        lv_obj_t *t = label(s_ota, font_bold(22), C_FG, TR("Püsivara uuendus", "Firmware update"));
         lv_obj_set_pos(t, 0, 0);
         s_ota_bar = lv_bar_create(s_ota);
         lv_obj_set_size(s_ota_bar, 530, 24);
@@ -965,23 +977,36 @@ static void timer_cb(lv_timer_t *)
 {
     static int tick;
     tick++;
-    std::string live = "praegu " + fmtf(shock_live_g(), 1) + " g";
-    if (!adxl_present()) live += " (SIMULATSIOON)";
+    std::string live = TR("praegu ", "now ") + fmtf(shock_live_g(), 1) + " g";
+    if (!adxl_present()) live += TR(" (SIMULATSIOON)", " (SIMULATION)");
     lv_label_set_text(s_live_l, live.c_str());
     if (!s_have_result) show_state_box();
     if (tick % 5 == 0) {
-        char b[96];
+        char b[160];
         int cl = net_ap_clients();
-        snprintf(b, sizeof(b), LV_SYMBOL_WIFI " %s%s", net_ap_ssid().c_str(), cl ? (cl == 1 ? " · 1 ühendus" : " · ühendused") : "");
+        snprintf(b, sizeof(b), LV_SYMBOL_WIFI " %s%s", net_ap_ssid().c_str(), cl ? (cl == 1 ? TR(" · 1 ühendus", " · 1 client") : TR(" · ühendused", " · clients")) : "");
         lv_label_set_text(s_wifi_l, b);
+        lv_obj_t *bl = lv_obj_get_child(s_banner, 0);
         if (clock_valid()) {
-            lv_obj_add_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
+            // kell sünkroniseeritud: kuupäev ja kellaaeg hoiatuse asemel
+            std::string t = clock_fmt(clock_epoch());  // "YYYY-MM-DD HH:MM:SS"
+            if (g_set.lang) snprintf(b, sizeof(b), "%s", t.c_str());
+            else snprintf(b, sizeof(b), "%s.%s.%s   %s", t.substr(8, 2).c_str(), t.substr(5, 2).c_str(),
+                          t.substr(0, 4).c_str(), t.substr(11).c_str());
+            lv_label_set_text(bl, b);
+            lv_obj_set_style_bg_color(s_banner, C_CARD, 0);
+            lv_obj_set_style_text_color(bl, C_FG, 0);
         } else {
-            snprintf(b, sizeof(b), "Kell seadistamata – ühenda WiFi „%s“ ja ava portaal",
-                     net_ap_ssid().c_str());
-            lv_label_set_text(lv_obj_get_child(s_banner, 0), b);
-            lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
+            bool open = strlen(g_set.ap_pass) < 8;
+            snprintf(b, sizeof(b),
+                     TR("Kell seadistamata – WiFi „%s“, parool %s%s%s → ava portaal",
+                        "Clock not set – WiFi \"%s\", password %s%s%s → open portal"),
+                     net_ap_ssid().c_str(), open ? "" : TR("„", "\""), open ? TR("puudub", "none") : g_set.ap_pass, open ? "" : TR("“", "\""));
+            lv_label_set_text(bl, b);
+            lv_obj_set_style_bg_color(s_banner, C_WARN, 0);
+            lv_obj_set_style_text_color(bl, lv_color_black(), 0);
         }
+        lv_obj_remove_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

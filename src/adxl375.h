@@ -28,3 +28,5 @@ void adxl_simulate(float peak_g, float td_ms, int axis /*0..2*/, float noise_g);
 void adxl_last_g(float *x, float *y, float *z);
 // ID lugemise tulemus diagnostikaks
 const char *adxl_id_text(void);
+// true: lööki oodatakse (andur kõrge prioriteediga), false: WiFi eelisjärjekorras
+void adxl_set_priority(bool high);

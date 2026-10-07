@@ -28,6 +28,8 @@ static const char *TAG = "adxl";
 
 static i2c_master_dev_handle_t s_dev;
 static bool s_present;
+static TaskHandle_t s_task;
+static volatile bool s_fast;  // lööki oodatakse: kõrge prioriteet ja tihe lugemine
 static uint8_t s_devid;
 static esp_err_t s_id_err = ESP_FAIL;
 static int s_odr = 3200;
@@ -130,7 +132,8 @@ static void sensor_task(void *)
         int n = st & 0x3F;
         if (n >= 32) s_overruns++;
         if (n == 0) {
-            vTaskDelay(1);
+            // ootel: FIFO (32 valimit = 20 ms @1600 Hz) loetakse harvem, WiFi saab protsessori
+            vTaskDelay(s_fast ? 1 : pdMS_TO_TICKS(10));
             rate_update();
             continue;
         }
@@ -194,11 +197,12 @@ bool adxl_init(int odr_hz)
         wr(REG_POWER_CTL, 0x08);            // mõõtmine
         s_present = true;
         ESP_LOGI(TAG, "ADXL375 leitud, ODR %d Hz", s_odr);
-        xTaskCreatePinnedToCore(sensor_task, "adxl", 4096, nullptr, configMAX_PRIORITIES - 3, nullptr, 0);
+        // prioriteet alla lwIP (18): FIFO (32 valimit = 20 ms @1600 Hz) annab piisavalt varu
+        xTaskCreatePinnedToCore(sensor_task, "adxl", 4096, nullptr, 5, &s_task, 0);
     } else {
         ESP_LOGW(TAG, "ADXL375 ei vasta (DEVID 0x%02x) - simulatsioonirežiim", id);
         s_present = false;
-        xTaskCreatePinnedToCore(fake_task, "adxlsim", 4096, nullptr, configMAX_PRIORITIES - 3, nullptr, 0);
+        xTaskCreatePinnedToCore(fake_task, "adxlsim", 4096, nullptr, 5, &s_task, 0);
     }
     return s_present;
 }
@@ -247,4 +251,11 @@ const char *adxl_id_text(void)
     static char b[48];
     snprintf(b, sizeof(b), "DEVID 0x%02X (%s)", s_devid, esp_err_to_name(s_id_err));
     return b;
+}
+
+void adxl_set_priority(bool high)
+{
+    s_fast = high;
+    // lööki oodates andur lwIP-st (18) kõrgemal, muul ajal WiFi/lwIP eespool
+    if (s_task) vTaskPrioritySet(s_task, high ? 22 : 5);
 }

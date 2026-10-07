@@ -28,6 +28,7 @@ float shock_live_g(void) { return s_live; }
 void shock_arm(bool on)
 {
     s_enabled = on;
+    adxl_set_priority(on);
     if (!on) s_state = SH_IDLE;
 }
 
@@ -167,11 +168,11 @@ void shock_analyze(const float *a, int n, float rate, float trig_index, ShotResu
     r.pass_td = r.td >= r.td_min && r.td <= r.td_max;
     r.pass_dv = r.dv >= r.dv_min && r.dv <= r.dv_max;
     r.pass = r.pass_peak && r.pass_td && (r.pass_dv || !s.dv_check) && (r.shape_ok || !s.shape_check) && !r.saturated;
-    if (r.saturated) r.reason += "andur küllastunud (>200 g); ";
-    if (!r.pass_peak) r.reason += r.peak < r.peak_min ? "tipp liiga madal; " : "tipp liiga kõrge; ";
-    if (!r.pass_td) r.reason += r.td < r.td_min ? "kestus liiga lühike; " : "kestus liiga pikk; ";
-    if (!r.pass_dv && s.dv_check) r.reason += "ΔV väljas; ";
-    if (!r.shape_ok && s.shape_check) r.reason += "kuju koridorist väljas; ";
+    if (r.saturated) r.reason += TR("andur küllastunud (>200 g); ", "sensor saturated (>200 g); ");
+    if (!r.pass_peak) r.reason += r.peak < r.peak_min ? TR("tipp liiga madal; ", "peak too low; ") : TR("tipp liiga kõrge; ", "peak too high; ");
+    if (!r.pass_td) r.reason += r.td < r.td_min ? TR("kestus liiga lühike; ", "duration too short; ") : TR("kestus liiga pikk; ", "duration too long; ");
+    if (!r.pass_dv && s.dv_check) r.reason += TR("ΔV väljas; ", "ΔV out of tolerance; ");
+    if (!r.shape_ok && s.shape_check) r.reason += TR("kuju koridorist väljas; ", "shape outside band; ");
     if (r.reason.size() > 2) r.reason.resize(r.reason.size() - 2);
 }
 
@@ -276,7 +277,7 @@ static void shock_task(void *)
             ESP_LOGI(TAG, "löök: telg %c%c tipp %.1f g, TD %.2f ms, dV %.3f m/s, kuju %s -> %s", pol > 0 ? '+' : '-',
                      'X' + ax, r->peak, r->td, r->dv, r->shape_ok ? "OK" : "väljas", r->pass ? "LÄBITUD" : "EBAÕNNESTUS");
             s_state = SH_DONE;
-            holdoff_until = esp_timer_get_time() + 500000 + (int64_t)(s.td_ms * 3000);
+            holdoff_until = esp_timer_get_time() + (int64_t)(fmaxf(s.holdoff_s, 0.3f) * 1e6f) + (int64_t)(s.td_ms * 3000);
             if (s_cb) s_cb(*r);
             delete r;
         }

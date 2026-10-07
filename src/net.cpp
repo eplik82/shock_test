@@ -16,6 +16,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "esp_heap_caps.h"
 #include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -35,13 +36,15 @@ static const char *TAG = "net";
 #define AP_IP_STR "4.3.2.1"
 #define AP_IP_B 4, 3, 2, 1
 
-extern const char index_html_start[] asm("_binary_index_html_start");
+extern const uint8_t index_gz_start[] asm("_binary_index_html_gz_start");
+extern const uint8_t index_gz_end[] asm("_binary_index_html_gz_end");
 
 static esp_netif_t *s_ap, *s_sta;
 static std::string s_ssid;
 static char s_sta_ip[16];
 static volatile bool s_ota;
 static volatile int s_clients;
+static volatile bool s_sta_paused;
 
 std::string net_ap_ssid(void) { return s_ssid; }
 std::string net_sta_ip(void) { return s_sta_ip; }
@@ -128,7 +131,8 @@ static esp_err_t index_get(httpd_req_t *r)
 {
     httpd_resp_set_type(r, "text/html; charset=utf-8");
     httpd_resp_set_hdr(r, "Cache-Control", "no-store");
-    return httpd_resp_send(r, index_html_start, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_set_hdr(r, "Content-Encoding", "gzip");
+    return httpd_resp_send(r, (const char *)index_gz_start, index_gz_end - index_gz_start);
 }
 
 // Telefonide internetikontrollid ja tundmatud aadressid -> portaal
@@ -137,7 +141,11 @@ static esp_err_t redirect(httpd_req_t *r)
     httpd_resp_set_status(r, "302 Found");
     httpd_resp_set_hdr(r, "Location", "http://" AP_IP_STR "/");
     httpd_resp_set_hdr(r, "Cache-Control", "no-store");
-    return httpd_resp_send(r, "", 0);
+    httpd_resp_set_hdr(r, "Connection", "close");
+    esp_err_t e = httpd_resp_send(r, "", 0);
+    // telefoni taustarakendused ei tohi pesasid kinni hoida
+    httpd_sess_trigger_close(r->handle, httpd_req_to_sockfd(r));
+    return e;
 }
 
 static esp_err_t status_get(httpd_req_t *r)
@@ -149,12 +157,12 @@ static esp_err_t status_get(httpd_req_t *r)
     snprintf(b, sizeof(b),
              "{\"fw\":\"%s\",\"time_valid\":%s,\"time\":\"%s\",\"sensor\":%s,\"rate\":%.0f,\"odr\":%d,"
              "\"overruns\":%lu,\"i2c_err\":%lu,\"used_kb\":%u,\"total_kb\":%u,\"open\":%lu,\"shots\":%u,"
-             "\"state\":%d,\"sta_ip\":\"%s\",\"uptime\":%lu,\"i2c\":\"%s\",\"adxl\":\"%s\"}",
+             "\"state\":%d,\"sta_ip\":\"%s\",\"uptime\":%lu,\"lang\":%d,\"i2c\":\"%s\",\"adxl\":\"%s\"}",
              FW_VERSION, clock_valid() ? "true" : "false", clock_fmt(clock_epoch()).c_str(),
              adxl_present() ? "true" : "false", adxl_measured_rate(), adxl_odr(), (unsigned long)adxl_overruns(),
              (unsigned long)adxl_i2c_errors(), (unsigned)(used / 1024), (unsigned)(total / 1024),
              (unsigned long)(store_has_open() ? si.id : 0), store_has_open() ? si.shots : 0, (int)shock_state(),
-             s_sta_ip, (unsigned long)clock_uptime_s(), board_i2c_diag(), adxl_id_text());
+             s_sta_ip, (unsigned long)clock_uptime_s(), (int)g_set.lang, board_i2c_diag(), adxl_id_text());
     set_json(r);
     return httpd_resp_send(r, b, HTTPD_RESP_USE_STRLEN);
 }
@@ -165,7 +173,7 @@ static esp_err_t time_post(httpd_req_t *r)
     int n = httpd_req_recv(r, b, sizeof(b) - 1);
     long long ms = 0;
     int tz = 0;
-    if (n <= 0 || sscanf(b, "%lld,%d", &ms, &tz) < 1 || ms < 1700000000000LL) {
+    if (n <= 0 || sscanf(b, "%lld,%d", &ms, &tz) < 1 || ms < 1700000000000LL || ms > 4102444800000LL) {
         httpd_resp_send_err(r, HTTPD_400_BAD_REQUEST, "vale aeg");
         return ESP_FAIL;
     }
@@ -265,7 +273,7 @@ static esp_err_t ota_post(httpd_req_t *r)
     ESP_LOGI(TAG, "püsivara %d baiti -> %s", r->content_len, part->label);
     {
         LvGuard g;
-        ui_ota_progress(0, "Püsivara uuendus: alustan ...");
+        ui_ota_progress(0, TR("Püsivara uuendus: alustan ...", "Firmware update: starting ..."));
     }
     esp_ota_handle_t h;
     esp_err_t err = esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &h);
@@ -287,7 +295,7 @@ static esp_err_t ota_post(httpd_req_t *r)
         if (pct != last) {
             last = pct;
             char t[64];
-            snprintf(t, sizeof(t), "Püsivara uuendus: %d %%", pct);
+            snprintf(t, sizeof(t), TR("Püsivara uuendus: %d %%", "Firmware update: %d %%"), pct);
             LvGuard g;
             ui_ota_progress(pct, t);
         }
@@ -301,7 +309,7 @@ static esp_err_t ota_post(httpd_req_t *r)
         s_ota = false;
         {
             LvGuard g;
-            ui_ota_progress(-1, err == ESP_ERR_INVALID_ARG ? "Vale fail (pole ESP32 püsivara)" : "Uuendus ebaõnnestus");
+            ui_ota_progress(-1, err == ESP_ERR_INVALID_ARG ? TR("Vale fail (pole ESP32 püsivara)", "Wrong file (not ESP32 firmware)") : TR("Uuendus ebaõnnestus", "Update failed"));
         }
         httpd_resp_send_err(r, HTTPD_500_INTERNAL_SERVER_ERROR,
                             err == ESP_ERR_INVALID_ARG ? "vale fail (pole ESP32 püsivara)" : esp_err_to_name(err));
@@ -309,7 +317,7 @@ static esp_err_t ota_post(httpd_req_t *r)
     }
     {
         LvGuard g;
-        ui_ota_progress(100, "Valmis! Taaskäivitan ...");
+        ui_ota_progress(100, TR("Valmis! Taaskäivitan ...", "Done! Restarting ..."));
     }
     set_json(r);
     httpd_resp_send(r, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
@@ -388,6 +396,51 @@ static esp_err_t odr_get(httpd_req_t *r)
     hard_restart();
 }
 
+// /dev/tasks: protsessoriaeg ülesannete kaupa
+static esp_err_t tasks_get(httpd_req_t *r)
+{
+    char *buf = (char *)malloc(4096);
+    if (!buf) return httpd_resp_send_500(r);
+    vTaskGetRunTimeStats(buf);
+    size_t l = strlen(buf);
+    snprintf(buf + l, 4096 - l, "\nsisemine vaba %u (min %u), PSRAM vaba %u\n",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    httpd_resp_set_type(r, "text/plain");
+    esp_err_t e = httpd_resp_send(r, buf, HTTPD_RESP_USE_STRLEN);
+    free(buf);
+    return e;
+}
+
+// /dev/wifi?bw=20|40&ps=0|1&tx=<0,25 dBm ühikud>  -> rakenda ja näita olekut
+static esp_err_t wifi_get(httpd_req_t *r)
+{
+    int bw = qint(r, "bw", 0), ps = qint(r, "ps", -1), tx = qint(r, "tx", 0);
+    if (bw == 20 || bw == 40) {
+        esp_wifi_set_bandwidth(WIFI_IF_AP, bw == 20 ? WIFI_BW_HT20 : WIFI_BW_HT40);
+        esp_wifi_set_bandwidth(WIFI_IF_STA, bw == 20 ? WIFI_BW_HT20 : WIFI_BW_HT40);
+    }
+    if (ps == 0 || ps == 1) esp_wifi_set_ps(ps ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
+    if (tx > 0) esp_wifi_set_max_tx_power(tx);
+    wifi_ap_record_t ap = {};
+    esp_wifi_sta_get_ap_info(&ap);
+    wifi_bandwidth_t b1 = WIFI_BW_HT20, b2 = WIFI_BW_HT20;
+    esp_wifi_get_bandwidth(WIFI_IF_STA, &b1);
+    esp_wifi_get_bandwidth(WIFI_IF_AP, &b2);
+    wifi_ps_type_t p = WIFI_PS_NONE;
+    esp_wifi_get_ps(&p);
+    int8_t pw = 0;
+    esp_wifi_get_max_tx_power(&pw);
+    uint8_t ch = 0;
+    wifi_second_chan_t sc;
+    esp_wifi_get_channel(&ch, &sc);
+    char o[200];
+    snprintf(o, sizeof(o), "rssi %d dBm, kanal %u, bw sta %s ap %s, ps %d, tx %.2f dBm, AP kliente %d\n", ap.rssi, ch,
+             b1 == WIFI_BW_HT20 ? "20" : "40", b2 == WIFI_BW_HT20 ? "20" : "40", (int)p, pw / 4.0f, s_clients);
+    return httpd_resp_send(r, o, HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t reboot_get(httpd_req_t *r)
 {
     httpd_resp_send(r, "ok", 2);
@@ -412,7 +465,7 @@ static void http_start(void)
     cfg.recv_wait_timeout = 20;
     cfg.send_wait_timeout = 20;
     cfg.lru_purge_enable = true;
-    cfg.max_open_sockets = 8;
+    cfg.max_open_sockets = 12;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     httpd_handle_t s;
     if (httpd_start(&s, &cfg) != ESP_OK) {
@@ -433,6 +486,8 @@ static void http_start(void)
     reg(s, "/dev/reboot", HTTP_GET, reboot_get);
     reg(s, "/dev/i2c", HTTP_GET, i2c_get);
     reg(s, "/dev/odr", HTTP_GET, odr_get);
+    reg(s, "/dev/tasks", HTTP_GET, tasks_get);
+    reg(s, "/dev/wifi", HTTP_GET, wifi_get);
     reg(s, "/*", HTTP_GET, redirect);  // viimane: captive-kontrollid ja muu
     ESP_LOGI(TAG, "HTTP: http://" AP_IP_STR "/");
 }
@@ -441,12 +496,21 @@ static void http_start(void)
 static void on_event(void *, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT) {
-        if (id == WIFI_EVENT_AP_STACONNECTED) s_clients++;
-        else if (id == WIFI_EVENT_AP_STADISCONNECTED && s_clients > 0) s_clients--;
-        else if (id == WIFI_EVENT_STA_START && g_set.sta_ssid[0]) esp_wifi_connect();
+        if (id == WIFI_EVENT_AP_STACONNECTED) {
+            // portaali kasutaja: klientvõrk pausile, pääsupunkt saab kogu raadioaja
+            if (s_clients++ == 0 && g_set.sta_ssid[0]) {
+                s_sta_paused = true;
+                esp_wifi_disconnect();
+            }
+        } else if (id == WIFI_EVENT_AP_STADISCONNECTED && s_clients > 0) {
+            if (--s_clients == 0 && s_sta_paused) {
+                s_sta_paused = false;
+                esp_wifi_connect();
+            }
+        } else if (id == WIFI_EVENT_STA_START && g_set.sta_ssid[0]) esp_wifi_connect();
         else if (id == WIFI_EVENT_STA_DISCONNECTED) {
             s_sta_ip[0] = 0;
-            if (g_set.sta_ssid[0]) esp_wifi_connect();
+            if (g_set.sta_ssid[0] && !s_sta_paused) esp_wifi_connect();
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         auto *e = (ip_event_got_ip_t *)data;
@@ -517,6 +581,9 @@ void net_init(void)
     net_apply_settings();
     esp_wifi_start();
     esp_wifi_set_ps(WIFI_PS_NONE);  // energiasääst aeglustas OTA-d (~8 KB/s)
+    // HT20: HT40 2,4 GHz-l (müra + ekraani häired) andis palju kordusedastusi, portaal ~2-5 KB/s
+    esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+    esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
     xTaskCreatePinnedToCore(dns_task, "dns", 4096, nullptr, 3, nullptr, 0);
     http_start();
     ESP_LOGI(TAG, "pääsupunkt %s", s_ssid.c_str());

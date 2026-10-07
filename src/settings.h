@@ -37,7 +37,13 @@ struct Settings {
     char ap_pass[33] = "shocktest";
     char sta_ssid[33] = "";    // valikuline: arendaja võrk (OTA)
     char sta_pass[65] = "";
+    // --- uued väljad ainult lõppu (vanem salvestis loetakse eesliitena) ---
+    float holdoff_s = 2.0f;    // ooteaeg pärast lööki enne uut käivitust (põrked, järelvõnkumine)
+    uint8_t lang = 0;          // 0 = eesti, 1 = english
 };
+
+// tõlge: TR("eesti", "english")
+#define TR(et, en) (g_set.lang ? (en) : (et))
 
 extern Settings g_set;
 

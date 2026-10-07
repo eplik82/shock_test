@@ -1,6 +1,7 @@
 #include "settings.h"
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -25,14 +26,19 @@ void settings_load(void)
         }
         return;
     }
-    Settings s;
-    size_t len = sizeof(Settings);
-    uint32_t ver = 0;
-    if (nvs_get_u32(h, "ver", &ver) == ESP_OK && ver == sizeof(Settings) &&
-        nvs_get_blob(h, "set", &s, &len) == ESP_OK && len == sizeof(Settings)) {
-        g_set = s;
+    // salvestis võib olla vanemast versioonist (lühem): uued väljad on struktuuri lõpus -> loe eesliide
+    size_t len = 0;
+    if (nvs_get_blob(h, "set", nullptr, &len) == ESP_OK && len > 0 && len <= sizeof(Settings)) {
+        Settings s;
+        uint8_t *buf = (uint8_t *)malloc(len);
+        if (buf && nvs_get_blob(h, "set", buf, &len) == ESP_OK) {
+            memcpy(&s, buf, len);
+            g_set = s;
+            if (len < sizeof(Settings)) ESP_LOGW(TAG, "seaded uuendatud (%u -> %u baiti)", (unsigned)len, (unsigned)sizeof(Settings));
+        }
+        free(buf);
     } else {
-        ESP_LOGW(TAG, "seaded puuduvad/vananenud, kasutan vaikeväärtusi");
+        ESP_LOGW(TAG, "seaded puuduvad/vigased, kasutan vaikeväärtusi");
     }
     nvs_close(h);
 }
@@ -84,12 +90,12 @@ const char *preset_name(int p)
     switch (p) {
     case PRESET_MIL_HSC1: return "MIL HSC-I 20 g / 23 ms";
     case PRESET_MIL_HSC2: return "MIL HSC-II 5 g / 23 ms";
-    case PRESET_MIL_GROUND: return "MIL maapealne 31,4 g / 11 ms";
-    case PRESET_UN_CELL: return "UN38.3 element 150 g / 6 ms";
-    case PRESET_UN_LARGE_CELL: return "UN38.3 suur element 50 g / 11 ms";
-    case PRESET_UN_SMALL_BATT: return "UN38.3 väike aku (mass)";
-    case PRESET_UN_LARGE_BATT: return "UN38.3 suur aku (mass)";
-    default: return "Kasutaja seaded";
+    case PRESET_MIL_GROUND: return TR("MIL maapealne 31,4 g / 11 ms", "MIL ground 31.4 g / 11 ms");
+    case PRESET_UN_CELL: return TR("UN38.3 element 150 g / 6 ms", "UN38.3 cell 150 g / 6 ms");
+    case PRESET_UN_LARGE_CELL: return TR("UN38.3 suur element 50 g / 11 ms", "UN38.3 large cell 50 g / 11 ms");
+    case PRESET_UN_SMALL_BATT: return TR("UN38.3 väike aku (mass)", "UN38.3 small battery (mass)");
+    case PRESET_UN_LARGE_BATT: return TR("UN38.3 suur aku (mass)", "UN38.3 large battery (mass)");
+    default: return TR("Kasutaja seaded", "User settings");
     }
 }
 
@@ -97,7 +103,7 @@ const char *preset_standard(int p)
 {
     if (p >= PRESET_MIL_HSC1 && p <= PRESET_MIL_GROUND) return "MIL-STD-810H Method 516.8";
     if (preset_is_un(p)) return "UN38.3 T.4 (Shock)";
-    return "Kasutaja (516.8 tolerantsid)";
+    return TR("Kasutaja (516.8 tolerantsid)", "User (516.8 tolerances)");
 }
 
 bool preset_is_un(int p) { return p >= PRESET_UN_CELL && p <= PRESET_UN_LARGE_BATT; }

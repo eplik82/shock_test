@@ -157,7 +157,10 @@ Seaded salvestatakse püsimällu (NVS).
 6. UN38.3 operaatori kontrollid on seadetest sisse/välja lülitatavad.
 7. A ülempiir on seadetest valitav: 200 g või 166 g.
 8. Püsivara uuendatakse WiFi captive portaali kaudu (p 4.4), automaatse tagasipööramisega. Püsivara failid on GitHubi repos https://github.com/eplik82/shock_test (Releases).
-9. Vaikevalikud (kasutaja pole muutnud): WiFi pääsupunkt on alati sees ja parooliga, katseobjekti andmed sisestatakse puuteekraanil.
+9. Kasutajaliides on eesti ja inglise keeles (seadetes „Keel / Language“); keel kehtib ka raportile.
+10. Kollasel kella hoiatusreal kuvatakse ka WiFi nimi ja parool; kui kell on sünkroniseeritud, kuvatakse sellel real kuupäev ja kellaaeg.
+11. Lööki oodates („Valmis“) on anduri lugemisel kõrge prioriteet, muul ajal on eelis WiFi-l.
+12. Vaikevalikud (kasutaja pole muutnud): WiFi pääsupunkt on alati sees ja parooliga, katseobjekti andmed sisestatakse puuteekraanil.
 
 ## 8. Avatud küsimused
-Lahtisi küsimusi pole. Vaikevalikuid p 7.9 saab vajadusel muuta.
+Lahtisi küsimusi pole. Vaikevalikuid p 7.12 saab vajadusel muuta.

@@ -123,8 +123,9 @@ static void check_rollback(void)
         nvs_set_str(h, "bad", key);
         nvs_commit(h);
         LvGuard g;
-        ui_message("Tarkvarauuendus ebaõnnestus",
-                   "Uus püsivara ei käivitunud korrektselt. Taastati eelmine versioon " FW_VERSION ".");
+        ui_message(TR("Tarkvarauuendus ebaõnnestus", "Firmware update failed"),
+                   TR("Uus püsivara ei käivitunud korrektselt. Taastati eelmine versioon " FW_VERSION ".",
+                      "The new firmware did not start correctly. Previous version " FW_VERSION " was restored."));
     }
     nvs_close(h);
 }
@@ -153,7 +154,7 @@ extern "C" void app_main(void)
     {
         // esimesel käivitusel vormindatakse 9,9 MB andmepartitsioon (võib kesta minuteid)
         LvGuard g;
-        ui_message("Käivitus", "Avan andmemälu ... (esimesel korral vormindamine, kuni 2 min)");
+        ui_message(TR("Käivitus", "Starting"), TR("Avan andmemälu ... (esimesel korral vormindamine, kuni 2 min)", "Opening data storage ... (first time formatting, up to 2 min)"));
     }
     STEP(store_init());
     {
