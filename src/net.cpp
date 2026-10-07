@@ -28,6 +28,7 @@
 #include "shock.h"
 #include "store.h"
 #include "ui.h"
+#include "netlog.h"
 #include "version.h"
 
 static const char *TAG = "net";
@@ -93,10 +94,37 @@ static void dns_task(void *)
             o += sizeof(rr);
         }
         sendto(sock, out, o, 0, (sockaddr *)&from, fl);
+        {
+            char name[80];
+            int k = 12, m = 0;
+            while (k < n && buf[k] && m < 78) {
+                int l = buf[k++];
+                if (m) name[m++] = '.';
+                for (int j = 0; j < l && k < n && m < 78; j++) name[m++] = buf[k++];
+            }
+            name[m] = 0;
+            char ip[16];
+            inet_ntoa_r(from.sin_addr, ip, sizeof(ip));
+            netlog("DNS %s %s t%u", ip, name, qtype);
+        }
     }
 }
 
 // ---------------- HTTP abi ----------------
+static void log_req(httpd_req_t *r, const char *what)
+{
+    sockaddr_in6 a = {};
+    socklen_t l = sizeof(a);
+    char ip[48] = "?";
+    if (getpeername(httpd_req_to_sockfd(r), (sockaddr *)&a, &l) == 0) {
+        if (a.sin6_family == AF_INET) inet_ntoa_r(((sockaddr_in *)&a)->sin_addr, ip, sizeof(ip));
+        else inet_ntoa_r(a.sin6_addr.un.u32_addr[3], ip, sizeof(ip));
+    }
+    char host[64] = "";
+    httpd_req_get_hdr_value_str(r, "Host", host, sizeof(host));
+    netlog("HTTP %s %s%s %s", ip, host, r->uri, what);
+}
+
 static void set_json(httpd_req_t *r) { httpd_resp_set_type(r, "application/json; charset=utf-8"); }
 
 static int qint(httpd_req_t *req, const char *key, int def)
@@ -129,6 +157,7 @@ static esp_err_t send_str(httpd_req_t *r, const std::string &s)
 
 static esp_err_t index_get(httpd_req_t *r)
 {
+    log_req(r, "leht");
     httpd_resp_set_type(r, "text/html; charset=utf-8");
     httpd_resp_set_hdr(r, "Cache-Control", "no-store");
     httpd_resp_set_hdr(r, "Content-Encoding", "gzip");
@@ -138,6 +167,7 @@ static esp_err_t index_get(httpd_req_t *r)
 // Telefonide internetikontrollid ja tundmatud aadressid -> portaal
 static esp_err_t redirect(httpd_req_t *r)
 {
+    log_req(r, "-> 302");
     httpd_resp_set_status(r, "302 Found");
     httpd_resp_set_hdr(r, "Location", "http://" AP_IP_STR "/");
     httpd_resp_set_hdr(r, "Cache-Control", "no-store");
@@ -441,6 +471,13 @@ static esp_err_t wifi_get(httpd_req_t *r)
     return httpd_resp_send(r, o, HTTPD_RESP_USE_STRLEN);
 }
 
+static esp_err_t log_get(httpd_req_t *r)
+{
+    std::string o = netlog_dump();
+    httpd_resp_set_type(r, "text/plain; charset=utf-8");
+    return httpd_resp_send(r, o.data(), o.size());
+}
+
 static esp_err_t reboot_get(httpd_req_t *r)
 {
     httpd_resp_send(r, "ok", 2);
@@ -488,6 +525,7 @@ static void http_start(void)
     reg(s, "/dev/odr", HTTP_GET, odr_get);
     reg(s, "/dev/tasks", HTTP_GET, tasks_get);
     reg(s, "/dev/wifi", HTTP_GET, wifi_get);
+    reg(s, "/dev/log", HTTP_GET, log_get);
     reg(s, "/*", HTTP_GET, redirect);  // viimane: captive-kontrollid ja muu
     ESP_LOGI(TAG, "HTTP: http://" AP_IP_STR "/");
 }
@@ -497,6 +535,8 @@ static void on_event(void *, esp_event_base_t base, int32_t id, void *data)
 {
     if (base == WIFI_EVENT) {
         if (id == WIFI_EVENT_AP_STACONNECTED) {
+            auto *e = (wifi_event_ap_staconnected_t *)data;
+            netlog("AP klient " MACSTR, MAC2STR(e->mac));
             // portaali kasutaja: klientvõrk pausile, pääsupunkt saab kogu raadioaja
             if (s_clients++ == 0 && g_set.sta_ssid[0]) {
                 s_sta_paused = true;
@@ -512,6 +552,9 @@ static void on_event(void *, esp_event_base_t base, int32_t id, void *data)
             s_sta_ip[0] = 0;
             if (g_set.sta_ssid[0] && !s_sta_paused) esp_wifi_connect();
         }
+    } else if (base == IP_EVENT && id == IP_EVENT_AP_STAIPASSIGNED) {
+        auto *e = (ip_event_ap_staipassigned_t *)data;
+        netlog("DHCP " IPSTR " -> " MACSTR, IP2STR(&e->ip), MAC2STR(e->mac));
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         auto *e = (ip_event_got_ip_t *)data;
         esp_ip4addr_ntoa(&e->ip_info.ip, s_sta_ip, sizeof(s_sta_ip));
@@ -559,12 +602,13 @@ void net_init(void)
     ip.netmask.addr = ESP_IP4TOADDR(255, 255, 255, 0);
     esp_netif_dhcps_stop(s_ap);
     esp_netif_set_ip_info(s_ap, &ip);
+    uint8_t offer = 0x02;  // OFFER_DNS
+    esp_err_t de = esp_netif_dhcps_option(s_ap, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &offer, sizeof(offer));
     esp_netif_dns_info_t dns = {};
     dns.ip.u_addr.ip4.addr = ESP_IP4TOADDR(4, 3, 2, 1);
     dns.ip.type = ESP_IPADDR_TYPE_V4;
-    esp_netif_set_dns_info(s_ap, ESP_NETIF_DNS_MAIN, &dns);
-    uint8_t offer = 0x02;  // OFFER_DNS
-    esp_netif_dhcps_option(s_ap, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &offer, sizeof(offer));
+    esp_err_t de2 = esp_netif_set_dns_info(s_ap, ESP_NETIF_DNS_MAIN, &dns);
+    netlog("DHCP DNS valik: %s, aadress: %s", esp_err_to_name(de), esp_err_to_name(de2));
     esp_netif_dhcps_start(s_ap);
 
     wifi_init_config_t wc = WIFI_INIT_CONFIG_DEFAULT();
@@ -572,6 +616,7 @@ void net_init(void)
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, nullptr);
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, nullptr);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, on_event, nullptr);
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
     char ssid[32];
