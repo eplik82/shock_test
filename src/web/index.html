@@ -31,22 +31,31 @@ progress{width:100%;height:18px}
 </style>
 </head>
 <body>
-<header><h1>Löögitest <span class="mut">Half-Sine Shock</span></h1><span id="clk" class="mut">…</span></header>
-<nav><button data-p="tests" class="on">Testid</button><button data-p="dev">Seade</button><button data-p="fw">Püsivara</button></nav>
+<header><h1><span data-t="title">Löögitest</span> <span class="mut">Half-Sine Shock</span></h1><span id="clk" class="mut">…</span></header>
+<nav><button data-p="tests" class="on" data-t="tests">Testid</button><button data-p="dev" data-t="dev">Seade</button><button data-p="fw" data-t="fw">Püsivara</button></nav>
 <main>
-<section id="p-tests" class="card"><div id="tests" class="mut">Laen …</div>
-<p class="mut">Kui allalaadimine ei käivitu, ava see leht tavalises brauseris: <b>http://4.3.2.1</b> (vajadusel lülita mobiilne andmeside ajutiselt välja).</p></section>
+<section id="p-tests" class="card"><div id="tests" class="mut" data-t="loading">Laen …</div>
+<p class="mut" data-t="dlhint">Kui allalaadimine ei käivitu, ava see leht tavalises brauseris: <b>http://4.3.2.1</b> (vajadusel lülita mobiilne andmeside ajutiselt välja).</p></section>
 <section id="p-dev" class="card" hidden><table id="dev"></table></section>
 <section id="p-fw" class="card" hidden>
 <table id="fwi"></table>
-<p>Uusim püsivara: <b>github.com/eplik82/shock_test</b> → <i>Releases</i> → <code>firmware.bin</code>. Laadi fail enne seadme WiFi-ga ühendumist telefoni.</p>
-<p>Vali uus püsivara fail (<code>firmware.bin</code>) ja vajuta „Laadi üles“. Seade taaskäivitub ise. Kui uus versioon ei käivitu, taastatakse eelmine automaatselt. Seaded ja testid säilivad.</p>
+<p data-t="fwrepo">Uusim püsivara: <b>github.com/eplik82/shock_test</b> → <i>Releases</i> → <code>firmware.bin</code>. Laadi fail enne seadme WiFi-ga ühendumist telefoni.</p>
+<p data-t="fwhelp">Vali uus püsivara fail (<code>firmware.bin</code>) ja vajuta „Laadi üles“. Seade taaskäivitub ise. Kui uus versioon ei käivitu, taastatakse eelmine automaatselt. Seaded ja testid säilivad.</p>
 <input type="file" id="fwf" accept=".bin">
-<div class="btns"><button class="b p" id="fwb">Laadi üles</button></div>
+<div class="btns"><button class="b p" id="fwb" data-t="upload">Laadi üles</button></div>
 <div id="fwp" hidden><progress id="fwpr" max="100" value="0"></progress><div id="fwt" class="mut"></div></div>
 </section>
 </main>
 <script>
+const EN={tests:'Tests',dev:'Device',fw:'Firmware',title:'Shock test',loading:'Loading …',
+dlhint:'If the download does not start, open this page in a normal browser: <b>http://4.3.2.1</b> (turn off mobile data if needed).',
+fwrepo:'Latest firmware: <b>github.com/eplik82/shock_test</b> → <i>Releases</i> → <code>firmware.bin</code>. Download the file to your phone before connecting to the device WiFi.',
+fwhelp:'Choose the new firmware file (<code>firmware.bin</code>) and press “Upload”. The device restarts by itself. If the new version does not start, the previous one is restored automatically. Settings and tests are kept.',
+upload:'Upload'};
+let EN_ON=false;
+const T=(et,en)=>EN_ON?en:et;
+function applyLang(){if(!EN_ON)return;document.documentElement.lang='en';document.title='Shock test';
+document.querySelectorAll('[data-t]').forEach(e=>{const k=e.dataset.t;if(EN[k])e.innerHTML=EN[k];});}
 const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
@@ -60,53 +69,53 @@ async function sync(){
 async function status(){
   try{
     const s=await (await fetch('/api/status')).json();
-    $('#clk').textContent=s.time_valid?s.time:'kell seadistamata';
-    const st=['ootel','ootab lööki','salvestab','tulemus'][s.state]||'';
+    $('#clk').textContent=s.time_valid?s.time:T('kell seadistamata','clock not set');
+    const st=(EN_ON?['idle','waiting for shock','capturing','result']:['ootel','ootab lööki','salvestab','tulemus'])[s.state]||'';
     $('#dev').innerHTML=[
-      ['Püsivara',s.fw],['Kell',s.time_valid?s.time:'seadistamata'],
-      ['Andur ADXL375',s.sensor?'ühendatud':'<span class="bad">ei vasta (simulatsioon)</span>'],
-      ['Valimisagedus',s.rate+' Hz (ODR '+s.odr+')'],['FIFO ületäitumisi / I2C vigu',s.overruns+' / '+s.i2c_err],
-      ['Mälu',s.used_kb+' / '+s.total_kb+' KB'],['Avatud seeria',s.open?('#'+s.open+', '+s.shots+' lööki, '+st):'—'],
-      ['Tööaeg',Math.floor(s.uptime/60)+' min']].map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>').join('');
+      [T('Püsivara','Firmware'),s.fw],[T('Kell','Clock'),s.time_valid?s.time:T('seadistamata','not set')],
+      [T('Andur ADXL375','Sensor ADXL375'),s.sensor?T('ühendatud','connected'):'<span class="bad">'+T('ei vasta (simulatsioon)','not responding (simulation)')+'</span>'],
+      [T('Valimisagedus','Sample rate'),s.rate+' Hz (ODR '+s.odr+')'],[T('FIFO ületäitumisi / I2C vigu','FIFO overruns / I2C errors'),s.overruns+' / '+s.i2c_err],
+      [T('Mälu','Storage'),s.used_kb+' / '+s.total_kb+' KB'],[T('Avatud seeria','Open series'),s.open?('#'+s.open+', '+s.shots+T(' lööki, ',' shocks, ')+st):'—'],
+      [T('Tööaeg','Uptime'),Math.floor(s.uptime/60)+' min']].map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>').join('');
   }catch(e){}
 }
 async function tests(){
   try{
     const l=await (await fetch('/api/tests')).json();
-    if(!l.length){$('#tests').innerHTML='<p class="mut">Teste pole veel tehtud.</p>';return;}
+    if(!l.length){$('#tests').innerHTML='<p class="mut">'+T('Teste pole veel tehtud.','No tests yet.')+'</p>';return;}
     $('#tests').innerHTML=l.map(t=>{
-      const c=t.verdict==='LÄBITUD'?'ok':t.verdict==='POOLELI'?'warn':'bad';
-      return '<div class="t"><div class="row"><span class="v">#'+t.id+' '+esc(t.object||'(nimetu)')+'</span><span class="v '+c+'">'+t.verdict+'</span></div>'+
-      '<div class="mut">'+esc(t.preset)+' · '+t.a+' g / '+t.td+' ms · '+t.passed+'/'+t.shots+' läbitud (plaan '+t.plan+')</div>'+
-      '<div class="mut">'+(t.start||'kell seadistamata')+(t.serial?' · SN '+esc(t.serial):'')+(t.oper?' · '+esc(t.oper):'')+'</div>'+
+      const c=(t.verdict==='LÄBITUD'||t.verdict==='PASS')?'ok':(t.verdict==='POOLELI'||t.verdict==='IN PROGRESS')?'warn':'bad';
+      return '<div class="t"><div class="row"><span class="v">#'+t.id+' '+esc(t.object||T('(nimetu)','(unnamed)'))+'</span><span class="v '+c+'">'+t.verdict+'</span></div>'+
+      '<div class="mut">'+esc(t.preset)+' · '+t.a+' g / '+t.td+' ms · '+t.passed+'/'+t.shots+T(' läbitud (plaan ',' passed (plan ')+t.plan+')</div>'+
+      '<div class="mut">'+(t.start||T('kell seadistamata','clock not set'))+(t.serial?' · SN '+esc(t.serial):'')+(t.oper?' · '+esc(t.oper):'')+'</div>'+
       '<div class="btns"><a class="b p" href="/api/report?id='+t.id+'" download>PDF</a><a class="b" href="/api/report?id='+t.id+'&csv=1" download>CSV</a>'+
-      '<button class="b d" onclick="del('+t.id+')">Kustuta</button></div></div>';
+      '<button class="b d" onclick="del('+t.id+')">'+T('Kustuta','Delete')+'</button></div></div>';
     }).join('');
-  }catch(e){$('#tests').textContent='Viga: '+e;}
+  }catch(e){$('#tests').textContent=T('Viga: ','Error: ')+e;}
 }
 async function del(id){
-  if(!confirm('Kustutada test #'+id+'?'))return;
+  if(!confirm(T('Kustutada test #','Delete test #')+id+'?'))return;
   await fetch('/api/delete?id='+id,{method:'POST'});tests();
 }
 async function fwinfo(){
   try{const f=await (await fetch('/api/fw')).json();
-  $('#fwi').innerHTML=[['Praegune versioon',f.version],['Ehitatud',f.build],['Partitsioon',f.partition]].map(r=>'<tr><td>'+r[0]+'</td><td>'+esc(r[1])+'</td></tr>').join('');}catch(e){}
+  $('#fwi').innerHTML=[[T('Praegune versioon','Current version'),f.version],[T('Ehitatud','Built'),f.build],[T('Partitsioon','Partition'),f.partition]].map(r=>'<tr><td>'+r[0]+'</td><td>'+esc(r[1])+'</td></tr>').join('');}catch(e){}
 }
 $('#fwb').onclick=()=>{
   const f=$('#fwf').files[0];
-  if(!f){alert('Vali fail');return;}
-  if(!confirm('Uuendada püsivara failiga '+f.name+' ('+Math.round(f.size/1024)+' KB)?'))return;
+  if(!f){alert(T('Vali fail','Choose a file'));return;}
+  if(!confirm(T('Uuendada püsivara failiga ','Update firmware with ')+f.name+' ('+Math.round(f.size/1024)+' KB)?'))return;
   const x=new XMLHttpRequest();
   $('#fwp').hidden=false;$('#fwb').disabled=true;
-  x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round(e.loaded*100/e.total);$('#fwpr').value=p;$('#fwt').textContent='Saadan … '+p+' %';}};
+  x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round(e.loaded*100/e.total);$('#fwpr').value=p;$('#fwt').textContent=T('Saadan … ','Sending … ')+p+' %';}};
   x.onload=()=>{
-    if(x.status===200){$('#fwt').textContent='Valmis! Seade taaskäivitub. Ühendu uuesti WiFi-ga umbes 20 s pärast.';$('#fwpr').value=100;}
-    else{$('#fwt').textContent='Viga: '+x.responseText;$('#fwb').disabled=false;}
+    if(x.status===200){$('#fwt').textContent=T('Valmis! Seade taaskäivitub. Ühendu uuesti WiFi-ga umbes 20 s pärast.','Done! The device restarts. Reconnect to its WiFi in about 20 s.');$('#fwpr').value=100;}
+    else{$('#fwt').textContent=T('Viga: ','Error: ')+x.responseText;$('#fwb').disabled=false;}
   };
-  x.onerror=()=>{$('#fwt').textContent='Ühendus katkes';$('#fwb').disabled=false;};
+  x.onerror=()=>{$('#fwt').textContent=T('Ühendus katkes','Connection lost');$('#fwb').disabled=false;};
   x.open('POST','/api/ota');x.send(f);
 };
-sync().then(()=>{status();tests();});
+sync().then(async()=>{try{const s=await (await fetch('/api/status')).json();EN_ON=s.lang==1;applyLang();}catch(e){}status();tests();});
 setInterval(status,3000);
 </script>
 </body>
