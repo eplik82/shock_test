@@ -1,6 +1,7 @@
 #include "adxl375.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "board.h"
@@ -27,6 +28,8 @@ static const char *TAG = "adxl";
 
 static i2c_master_dev_handle_t s_dev;
 static bool s_present;
+static uint8_t s_devid;
+static esp_err_t s_id_err = ESP_FAIL;
 static int s_odr = 3200;
 static AccSample *s_ring;
 static volatile uint32_t s_count;
@@ -46,9 +49,13 @@ static esp_err_t wr(uint8_t reg, uint8_t v)
     return i2c_master_transmit(s_dev, b, 2, 20);
 }
 
+// NB: kordusstart (transmit_receive) 400 kHz juures ebaõnnestub selle anduriplaadiga (NACK) ->
+// registri aadress ja lugemine eraldi tehingutena (STOP vahel), mõõdetud 20/20 OK
 static esp_err_t rd(uint8_t reg, uint8_t *dst, size_t n)
 {
-    return i2c_master_transmit_receive(s_dev, &reg, 1, dst, n, 20);
+    esp_err_t e = i2c_master_transmit(s_dev, &reg, 1, 20);
+    if (e == ESP_OK) e = i2c_master_receive(s_dev, dst, n, 20);
+    return e;
 }
 
 static uint8_t rate_code(int odr)
@@ -172,7 +179,13 @@ bool adxl_init(int odr_hz)
     dev.scl_speed_hz = 400000;
     if (i2c_master_bus_add_device(board_i2c_bus(), &dev, &s_dev) != ESP_OK) return false;
     uint8_t id = 0;
-    if (rd(REG_DEVID, &id, 1) == ESP_OK && id == 0xE5) {
+    for (int i = 0; i < 5; i++) {
+        s_id_err = rd(REG_DEVID, &id, 1);
+        if (s_id_err == ESP_OK && id == 0xE5) break;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    s_devid = id;
+    if (s_id_err == ESP_OK && id == 0xE5) {
         wr(REG_POWER_CTL, 0x00);            // ooterežiim seadistamise ajaks
         wr(REG_DATA_FORMAT, 0x0B);          // ADXL375: D3, D1, D0 peavad olema 1
         wr(REG_BW_RATE, rate_code(s_odr));  // tavaline võimsus
@@ -227,4 +240,11 @@ void adxl_last_g(float *x, float *y, float *z)
     *x = a.x * ADXL_LSB_G;
     *y = a.y * ADXL_LSB_G;
     *z = a.z * ADXL_LSB_G;
+}
+
+const char *adxl_id_text(void)
+{
+    static char b[48];
+    snprintf(b, sizeof(b), "DEVID 0x%02X (%s)", s_devid, esp_err_to_name(s_id_err));
+    return b;
 }

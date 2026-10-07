@@ -16,6 +16,7 @@
 #include "esp_ota_ops.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hardreset.h"
@@ -148,12 +149,12 @@ static esp_err_t status_get(httpd_req_t *r)
     snprintf(b, sizeof(b),
              "{\"fw\":\"%s\",\"time_valid\":%s,\"time\":\"%s\",\"sensor\":%s,\"rate\":%.0f,\"odr\":%d,"
              "\"overruns\":%lu,\"i2c_err\":%lu,\"used_kb\":%u,\"total_kb\":%u,\"open\":%lu,\"shots\":%u,"
-             "\"state\":%d,\"sta_ip\":\"%s\",\"uptime\":%lu,\"i2c\":\"%s\"}",
+             "\"state\":%d,\"sta_ip\":\"%s\",\"uptime\":%lu,\"i2c\":\"%s\",\"adxl\":\"%s\"}",
              FW_VERSION, clock_valid() ? "true" : "false", clock_fmt(clock_epoch()).c_str(),
              adxl_present() ? "true" : "false", adxl_measured_rate(), adxl_odr(), (unsigned long)adxl_overruns(),
              (unsigned long)adxl_i2c_errors(), (unsigned)(used / 1024), (unsigned)(total / 1024),
              (unsigned long)(store_has_open() ? si.id : 0), store_has_open() ? si.shots : 0, (int)shock_state(),
-             s_sta_ip, (unsigned long)clock_uptime_s(), board_i2c_diag());
+             s_sta_ip, (unsigned long)clock_uptime_s(), board_i2c_diag(), adxl_id_text());
     set_json(r);
     return httpd_resp_send(r, b, HTTPD_RESP_USE_STRLEN);
 }
@@ -342,6 +343,51 @@ static esp_err_t sim_get(httpd_req_t *r)
     return httpd_resp_send(r, "ok", 2);
 }
 
+// I2C katsetus: /dev/i2c?addr=83&reg=0&n=1&hz=100000&sep=1&wr=-1  (sep=1: STOP kirjutuse ja lugemise vahel; wr>=0: kirjuta reg=wr)
+static esp_err_t i2c_get(httpd_req_t *r)
+{
+    int addr = qint(r, "addr", 0x53), reg = qint(r, "reg", 0), n = qint(r, "n", 1), hz = qint(r, "hz", 100000);
+    int sep = qint(r, "sep", 0), wv = qint(r, "wr", -1);
+    if (n < 1) n = 1;
+    if (n > 32) n = 32;
+    i2c_device_config_t dc = {};
+    dc.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    dc.device_address = addr;
+    dc.scl_speed_hz = hz;
+    i2c_master_dev_handle_t d;
+    char out[256];
+    if (i2c_master_bus_add_device(board_i2c_bus(), &dc, &d) != ESP_OK) return httpd_resp_send(r, "add_device viga", HTTPD_RESP_USE_STRLEN);
+    uint8_t rg = reg, buf[32] = {};
+    esp_err_t e;
+    if (wv >= 0) {
+        uint8_t b2[2] = {(uint8_t)reg, (uint8_t)wv};
+        e = i2c_master_transmit(d, b2, 2, 50);
+        snprintf(out, sizeof(out), "kirjutus reg 0x%02X=0x%02X: %s", reg, wv, esp_err_to_name(e));
+    } else {
+        if (sep) {
+            e = i2c_master_transmit(d, &rg, 1, 50);
+            if (e == ESP_OK) e = i2c_master_receive(d, buf, n, 50);
+        } else {
+            e = i2c_master_transmit_receive(d, &rg, 1, buf, n, 50);
+        }
+        int o = snprintf(out, sizeof(out), "0x%02X reg 0x%02X %s:", addr, reg, esp_err_to_name(e));
+        for (int i = 0; i < n && o < (int)sizeof(out) - 4; i++) o += snprintf(out + o, sizeof(out) - o, " %02X", buf[i]);
+    }
+    i2c_master_bus_rm_device(d);
+    return httpd_resp_send(r, out, HTTPD_RESP_USE_STRLEN);
+}
+
+// /dev/odr?hz=1600 -> salvesta ja taaskäivita
+static esp_err_t odr_get(httpd_req_t *r)
+{
+    int hz = qint(r, "hz", 1600);
+    g_set.odr = hz >= 3200 ? 3200 : hz >= 1600 ? 1600 : 800;
+    settings_save();
+    httpd_resp_send(r, "ok", 2);
+    vTaskDelay(pdMS_TO_TICKS(300));
+    hard_restart();
+}
+
 static esp_err_t reboot_get(httpd_req_t *r)
 {
     httpd_resp_send(r, "ok", 2);
@@ -385,6 +431,8 @@ static void http_start(void)
     reg(s, "/dev/tap", HTTP_GET, tap_get);
     reg(s, "/dev/sim", HTTP_GET, sim_get);
     reg(s, "/dev/reboot", HTTP_GET, reboot_get);
+    reg(s, "/dev/i2c", HTTP_GET, i2c_get);
+    reg(s, "/dev/odr", HTTP_GET, odr_get);
     reg(s, "/*", HTTP_GET, redirect);  // viimane: captive-kontrollid ja muu
     ESP_LOGI(TAG, "HTTP: http://" AP_IP_STR "/");
 }

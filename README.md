@@ -58,9 +58,11 @@ Ilma andurita töötab seade simulatsioonirežiimis (1 g Z-teljel + müra); `sim
 
 ## Teadaolevad probleemid
 
-- **ADXL375 ühendus (2026-10-07):** anduriga hoiti I2C SDA liini madalal (SDA=0 juba enne I2C käivitust) →
+- **ADXL375 ühendus (2026-10-07, lahendatud):** toide oli 3Vo viigus, anduriga hoiti I2C SDA liini madalal (SDA=0 juba enne I2C käivitust) →
   CH422G, GT911 ja ADXL375 ei vastanud. Ilma andurita on siin korras. Kontrolli anduri juhtmete järjekorda
   (3V3/GND/SDA/SCL). Käivituse diagnostika: `/api/status` väli `i2c`.
-- ADXL375 andmelehe järgi on I2C 400 kHz juures soovitatav ODR ≤ 800 Hz; 3200 Hz vajab kontrolli (FIFO ületäitumised `/api/status`).
+- ODR 3200 Hz ei jõua I2C kaudu (2535 Hz, ületäitumised); vaikimisi 1600 Hz (stabiilne). Muutmine: seaded või `/dev/odr?hz=1600`.
+- Kordusstart (`i2c_master_transmit_receive`) 400 kHz juures ebaõnnestub selle anduriga → draiver kasutab eraldi tehinguid. Katsetus: `/dev/i2c?addr=83&reg=0&n=1&sep=1&hz=400000`.
+- Adafruit ADXL375 toide **Vin** viiku (mitte 3Vo).
 - Seeriapordi (CH343) avamine/sulgemine võib plaadi lähtestada; eelista WiFi-t (`/api/status`, `tools/shot.py`).
 - Taustvalgus lülitatakse sisse kohe käivitusel (hilisem sisselülitus CH422G kaudu langes kokku lähtestustsükliga).

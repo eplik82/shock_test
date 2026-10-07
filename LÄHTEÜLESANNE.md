@@ -137,9 +137,14 @@ Seaded salvestatakse püsimällu (NVS).
   ADXL375 ODR on maksimaalselt 3200 Hz (ribalaius ~1600 Hz). Seade sobib **kontroll- ja seadistusvahendiks**
   (stendi häälestus, kiirkontroll), mitte ametlikuks kvalifitseerimismõõtmiseks.
 - Ajasamm on 0,3125 ms. Et TD ±10 % kontroll oleks usaldusväärne (resolutsioon ≤5 % TD-st), peab **TD ≥ ~6 ms**.
-  Lühemat TD-d lubada ainult hoiatusega. Tüüpilised 11 ms ja 23 ms annavad vastavalt ~35 ja ~74 punkti impulsi kohta.
+  Lühemat TD-d lubada ainult hoiatusega. Tüüpilised 11 ms ja 23 ms annavad 3200 Hz juures ~35 ja ~74 punkti, 1600 Hz juures ~18 ja ~37 punkti.
 - **Küllastus:** ADXL375 mõõtepiir on ±200 g. Kui A > ~166 g, jääb ülemine piir 1,2·A anduri piirist välja
   (nt A = 200 g annab max 240 g). Üle 200 g tippu ei saa mõõta, seega tuleb mõõtepiiri saavutamisel kuvada „ANDUR KÜLLASTUNUD“.
+- **Mõõdetud (2026-10-07):** I2C kaudu ei jõua 3200 Hz ODR-i ära lugeda (tegelik 2535 Hz, FIFO ületäitumised).
+  **1600 Hz töötab stabiilselt** ja on vaikimisi valik. 11 ms impulsist saab ~18 punkti ja 6 ms impulsist ~10 punkti
+  (tipp ja kestus interpoleeritakse). 3200 Hz jaoks oleks vaja SPI-ühendust.
+- Anduri plaat on Adafruit ADXL375 (5374). Toide tuleb ühendada **Vin** viiku: 3Vo on regulaatori väljund ja nivoomuundurid
+  vajavad Vin-i, muidu hoitakse SDA madalal.
 - UN38.3 6 ms impulss annab ~19 mõõtepunkti. Sellest piisab, kuid TD ±10 % kontroll on piiripealne (samm on ~5 % TD-st).
 - Andur peab olema testobjekti või stendi laua külge jäigalt kinnitatud.
 

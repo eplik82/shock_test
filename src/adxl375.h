@@ -26,3 +26,5 @@ uint32_t adxl_i2c_errors(void);
 void adxl_simulate(float peak_g, float td_ms, int axis /*0..2*/, float noise_g);
 // viimane valim g-des (kuvamiseks)
 void adxl_last_g(float *x, float *y, float *z);
+// ID lugemise tulemus diagnostikaks
+const char *adxl_id_text(void);

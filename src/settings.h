@@ -31,7 +31,7 @@ struct Settings {
     uint8_t amax = 200;        // A ülempiir: 200 või 166
     uint8_t axis = AXIS_AUTO;
     uint8_t shots_per_dir = 3;
-    uint16_t odr = 3200;       // ADXL375 diskreetimissagedus (800/1600/3200)
+    uint16_t odr = 1600;       // ADXL375 diskreetimissagedus (800/1600/3200); 3200 Hz ei jõua I2C kaudu (mõõdetud 2535 Hz, FIFO ületäitumised)
     float trig_pct = 30.0f;    // käivituslävi % A-st
     float cal[3] = {1, 1, 1};  // telgede kalibreerimistegurid
     char ap_pass[33] = "shocktest";
