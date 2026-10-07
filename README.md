@@ -1,0 +1,66 @@
+# shock_test
+
+Half-Sine Shock Pulse tester: Waveshare **ESP32-S3-Touch-LCD-4.3** + **ADXL375** (I2C 0x53).
+Lähteülesanne: `LÄHTEÜLESANNE.md`. Standard: MIL-STD-810H Method 516.8 (https://cvgstrategy.com/wp-content/uploads/2019/08/MIL-STD-810H-Method-516.8-Shock.pdf).
+
+ESP-IDF 5.5.5 + LVGL 9.2 (PlatformIO, `~/.espvenv/bin/pio`). Püsivara versioon: `src/version.h`.
+
+## Struktuur
+
+| Fail | Sisu |
+|---|---|
+| `src/adxl375.*` | andur: FIFO stream, ringpuhver (PSRAM), mõõdetud valimisagedus, simulatsioon |
+| `src/shock.*` | käivituslävi, eel/järelpuhver, analüüs (tipp, TD 10 % punktidest, ΔV, kuju koridor ±0,2·A/±0,1·TD) |
+| `src/store.*` | seeriad ja löögid LittleFS-is (`/lfs/tNNNN/`), kella tagantjärele dateerimine |
+| `src/report.*`, `src/pdf.*` | PDF (seadmes genereeritud) ja CSV (eesti Excel: `;` ja koma) |
+| `src/net.*`, `src/web/index.html` | WiFi pääsupunkt `ShockTest-XXXX` (4.3.2.1), captive DNS, portaal, OTA |
+| `src/ui.*`, `src/fonts.*` | LVGL vaated: test, seaded, dialoogid; DejaVu alamhulk (eesti tähed) |
+| `src/settings.*` | NVS seaded, eelseadistused (MIL-STD-810H, UN38.3 T.4) |
+| `src/board.*`, `src/lvgl_port.*`, `src/hardreset.*`, `src/crashinfo.*` | plaat (browser-projektist, ekraani töötav seadistus) + I2C diagnostika |
+
+## Ehitamine
+
+```bash
+cd /mnt/c/Claude/shock_test
+~/.espvenv/bin/pio run          # väljund: ~/.cache/shock_test/build/shock/
+```
+
+## Uuendamine üle WiFi (tavaline)
+
+Plaat ühendub klientvõrku (seadetes „Klientvõrk“; esimesel käivitusel võetakse browser-püsivara WiFi), IP `/tmp/shock_ip`.
+
+```bash
+tools/ota.sh <plaadi IP>        # saadab firmware.bin -> /api/ota, ootab taaskäivitust
+```
+Kasutaja: portaal http://4.3.2.1 → „Püsivara“ → vali `firmware.bin` → „Laadi üles“.
+Kui uus versioon ei kinnitu 20 s jooksul, taastab alglaadur eelmise.
+
+## USB välgutus (partitsioonitabeli/alglaaduri muutus)
+
+```bat
+C:\Claude\esp32-browser\.winvenv\Scripts\python.exe C:\Claude\shock_test\tools\flash_usb.py COM4 300
+```
+Kopeeri enne `~/.cache/shock_test/build/shock/{bootloader,partitions,ota_data_initial,firmware}.bin` → `bin\`.
+Skript saadab seeriakäsu `dl` (allalaadimisrežiim ilma nuppudeta); kui plaat ei vasta: BOOT all + RESET.
+**Pärast USB-välgutust käivitub plaat alles toite välja/sisse lülitamisel (kaabel välja ja tagasi).**
+
+## Arendus ja testimine
+
+| Käsk | Mis |
+|---|---|
+| `curl http://IP/api/status` | olek, valimisagedus, I2C diagnostika |
+| `tools/shot.py pilt.png` | ekraanipilt |
+| `curl "http://IP/dev/tap?x=100&y=453"` | puudutus |
+| `curl "http://IP/dev/sim?a10=500&td100=1100&axis=2"` | simuleeritud löök 50,0 g / 11,00 ms Z-teljel |
+| seeria (COM4, 921600): `status`, `sim A TD [telg] [müra]`, `arm 1`, `shot`, `dl`, `reboot` | `tools\ser.py COM4 4 status` |
+
+Ilma andurita töötab seade simulatsioonirežiimis (1 g Z-teljel + müra); `sim` lisab impulsi.
+
+## Teadaolevad probleemid
+
+- **ADXL375 ühendus (2026-10-07):** anduriga hoiti I2C SDA liini madalal (SDA=0 juba enne I2C käivitust) →
+  CH422G, GT911 ja ADXL375 ei vastanud. Ilma andurita on siin korras. Kontrolli anduri juhtmete järjekorda
+  (3V3/GND/SDA/SCL). Käivituse diagnostika: `/api/status` väli `i2c`.
+- ADXL375 andmelehe järgi on I2C 400 kHz juures soovitatav ODR ≤ 800 Hz; 3200 Hz vajab kontrolli (FIFO ületäitumised `/api/status`).
+- Seeriapordi (CH343) avamine/sulgemine võib plaadi lähtestada; eelista WiFi-t (`/api/status`, `tools/shot.py`).
+- Taustvalgus lülitatakse sisse kohe käivitusel (hilisem sisselülitus CH422G kaudu langes kokku lähtestustsükliga).

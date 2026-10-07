@@ -1,0 +1,10 @@
+.pio/
+.vscode/
+managed_components/
+bin/
+*.bin
+*.log
+__pycache__/
+sdkconfig.shock
+sdkconfig.shock.old
+docs/*.pdf

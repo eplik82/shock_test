@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="et">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Löögitest</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--fg:#1d2330;--mut:#6b7280;--ok:#15803d;--bad:#b91c1c;--warn:#b45309;--acc:#1d4ed8;--line:#e5e7eb}
+@media (prefers-color-scheme:dark){:root{--bg:#111318;--card:#1b1f27;--fg:#e8eaf0;--mut:#9aa1ad;--ok:#4ade80;--bad:#f87171;--warn:#fbbf24;--acc:#60a5fa;--line:#2a303b}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg)}
+header{padding:14px 16px;background:var(--card);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+h1{font-size:18px;margin:0}
+.mut{color:var(--mut);font-size:13px}
+nav{display:flex;gap:4px;padding:8px 16px 0}
+nav button{flex:1;padding:10px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:transparent;color:var(--fg);font-size:15px}
+nav button.on{background:var(--card);font-weight:600}
+main{padding:0 16px 24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:0 0 10px 10px;padding:14px}
+.t{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.v{font-weight:700}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+a.b,button.b{display:inline-block;padding:9px 14px;border-radius:8px;border:1px solid var(--acc);color:var(--acc);text-decoration:none;background:transparent;font-size:14px}
+a.b.p,button.b.p{background:var(--acc);color:#fff}
+button.b.d{border-color:var(--bad);color:var(--bad)}
+.note{background:rgba(180,83,9,.1);border:1px solid var(--warn);border-radius:8px;padding:10px;margin:12px 0;font-size:14px}
+table{width:100%;border-collapse:collapse}td{padding:6px 0;border-bottom:1px solid var(--line)}td:last-child{text-align:right;font-weight:600}
+progress{width:100%;height:18px}
+</style>
+</head>
+<body>
+<header><h1>Löögitest <span class="mut">Half-Sine Shock</span></h1><span id="clk" class="mut">…</span></header>
+<nav><button data-p="tests" class="on">Testid</button><button data-p="dev">Seade</button><button data-p="fw">Püsivara</button></nav>
+<main>
+<section id="p-tests" class="card"><div id="tests" class="mut">Laen …</div>
+<p class="mut">Kui allalaadimine ei käivitu, ava see leht tavalises brauseris: <b>http://4.3.2.1</b> (vajadusel lülita mobiilne andmeside ajutiselt välja).</p></section>
+<section id="p-dev" class="card" hidden><table id="dev"></table></section>
+<section id="p-fw" class="card" hidden>
+<table id="fwi"></table>
+<p>Uusim püsivara: <b>github.com/eplik82/shock_test</b> → <i>Releases</i> → <code>firmware.bin</code>. Laadi fail enne seadme WiFi-ga ühendumist telefoni.</p>
+<p>Vali uus püsivara fail (<code>firmware.bin</code>) ja vajuta „Laadi üles“. Seade taaskäivitub ise. Kui uus versioon ei käivitu, taastatakse eelmine automaatselt. Seaded ja testid säilivad.</p>
+<input type="file" id="fwf" accept=".bin">
+<div class="btns"><button class="b p" id="fwb">Laadi üles</button></div>
+<div id="fwp" hidden><progress id="fwpr" max="100" value="0"></progress><div id="fwt" class="mut"></div></div>
+</section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  ['tests','dev','fw'].forEach(p=>$('#p-'+p).hidden=p!==b.dataset.p);
+  if(b.dataset.p==='fw')fwinfo();
+});
+async function sync(){
+  try{await fetch('/api/time',{method:'POST',body:Date.now()+','+(-new Date().getTimezoneOffset())});}catch(e){}
+}
+async function status(){
+  try{
+    const s=await (await fetch('/api/status')).json();
+    $('#clk').textContent=s.time_valid?s.time:'kell seadistamata';
+    const st=['ootel','ootab lööki','salvestab','tulemus'][s.state]||'';
+    $('#dev').innerHTML=[
+      ['Püsivara',s.fw],['Kell',s.time_valid?s.time:'seadistamata'],
+      ['Andur ADXL375',s.sensor?'ühendatud':'<span class="bad">ei vasta (simulatsioon)</span>'],
+      ['Valimisagedus',s.rate+' Hz (ODR '+s.odr+')'],['FIFO ületäitumisi / I2C vigu',s.overruns+' / '+s.i2c_err],
+      ['Mälu',s.used_kb+' / '+s.total_kb+' KB'],['Avatud seeria',s.open?('#'+s.open+', '+s.shots+' lööki, '+st):'—'],
+      ['Tööaeg',Math.floor(s.uptime/60)+' min']].map(r=>'<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>').join('');
+  }catch(e){}
+}
+async function tests(){
+  try{
+    const l=await (await fetch('/api/tests')).json();
+    if(!l.length){$('#tests').innerHTML='<p class="mut">Teste pole veel tehtud.</p>';return;}
+    $('#tests').innerHTML=l.map(t=>{
+      const c=t.verdict==='LÄBITUD'?'ok':t.verdict==='POOLELI'?'warn':'bad';
+      return '<div class="t"><div class="row"><span class="v">#'+t.id+' '+esc(t.object||'(nimetu)')+'</span><span class="v '+c+'">'+t.verdict+'</span></div>'+
+      '<div class="mut">'+esc(t.preset)+' · '+t.a+' g / '+t.td+' ms · '+t.passed+'/'+t.shots+' läbitud (plaan '+t.plan+')</div>'+
+      '<div class="mut">'+(t.start||'kell seadistamata')+(t.serial?' · SN '+esc(t.serial):'')+(t.oper?' · '+esc(t.oper):'')+'</div>'+
+      '<div class="btns"><a class="b p" href="/api/report?id='+t.id+'" download>PDF</a><a class="b" href="/api/report?id='+t.id+'&csv=1" download>CSV</a>'+
+      '<button class="b d" onclick="del('+t.id+')">Kustuta</button></div></div>';
+    }).join('');
+  }catch(e){$('#tests').textContent='Viga: '+e;}
+}
+async function del(id){
+  if(!confirm('Kustutada test #'+id+'?'))return;
+  await fetch('/api/delete?id='+id,{method:'POST'});tests();
+}
+async function fwinfo(){
+  try{const f=await (await fetch('/api/fw')).json();
+  $('#fwi').innerHTML=[['Praegune versioon',f.version],['Ehitatud',f.build],['Partitsioon',f.partition]].map(r=>'<tr><td>'+r[0]+'</td><td>'+esc(r[1])+'</td></tr>').join('');}catch(e){}
+}
+$('#fwb').onclick=()=>{
+  const f=$('#fwf').files[0];
+  if(!f){alert('Vali fail');return;}
+  if(!confirm('Uuendada püsivara failiga '+f.name+' ('+Math.round(f.size/1024)+' KB)?'))return;
+  const x=new XMLHttpRequest();
+  $('#fwp').hidden=false;$('#fwb').disabled=true;
+  x.upload.onprogress=e=>{if(e.lengthComputable){const p=Math.round(e.loaded*100/e.total);$('#fwpr').value=p;$('#fwt').textContent='Saadan … '+p+' %';}};
+  x.onload=()=>{
+    if(x.status===200){$('#fwt').textContent='Valmis! Seade taaskäivitub. Ühendu uuesti WiFi-ga umbes 20 s pärast.';$('#fwpr').value=100;}
+    else{$('#fwt').textContent='Viga: '+x.responseText;$('#fwb').disabled=false;}
+  };
+  x.onerror=()=>{$('#fwt').textContent='Ühendus katkes';$('#fwb').disabled=false;};
+  x.open('POST','/api/ota');x.send(f);
+};
+sync().then(()=>{status();tests();});
+setInterval(status,3000);
+</script>
+</body>
+</html>
