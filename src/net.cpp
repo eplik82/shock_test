@@ -382,12 +382,20 @@ static esp_err_t ota_post(httpd_req_t *r)
     esp_ota_handle_t h;
     esp_err_t err = esp_ota_begin(part, OTA_WITH_SEQUENTIAL_WRITES, &h);
     char *buf = (char *)malloc(8192);
-    int left = r->content_len, last = -1;
+    int left = r->content_len, last = -1, log_pct = -10, timeouts = 0;
     bool first = true;
+    int64_t t_start = esp_timer_get_time();
+    netlog("OTA algus: %d B -> %s", r->content_len, part->label);
     while (err == ESP_OK && left > 0) {
         int n = httpd_req_recv(r, buf, left < 8192 ? left : 8192);
-        if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
-        if (n <= 0) { err = ESP_FAIL; break; }
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            // brauser lõpetas saatmise (nt telefon lukus, võrk vahetus): ära jää lõputult ootama
+            netlog("OTA: andmeid pole %d s (%d B jäänud)", (timeouts + 1) * 10, left);
+            if (++timeouts >= 3) { err = ESP_ERR_TIMEOUT; break; }
+            continue;
+        }
+        timeouts = 0;
+        if (n <= 0) { netlog("OTA: ühendus katkes (%d), %d B jäänud", n, left); err = ESP_FAIL; break; }
         if (first) {
             first = false;
             // ESP32 rakenduse pildi maagiline bait
@@ -396,7 +404,12 @@ static esp_err_t ota_post(httpd_req_t *r)
         err = esp_ota_write(h, buf, n);
         left -= n;
         int pct = (int)((int64_t)(r->content_len - left) * 100 / r->content_len);
-        if (pct != last) {
+        if (pct >= log_pct + 10) {
+            log_pct = pct - pct % 10;
+            float sec = (esp_timer_get_time() - t_start) / 1e6f;
+            netlog("OTA %d %%: %.1f s, %.1f KB/s", pct, sec, (r->content_len - left) / 1024.0f / (sec > 0 ? sec : 1));
+        }
+        if (pct >= last + 2 || left == 0) {  // ekraan iga 2 % järel (joonistamine hoiab HTTP lõime kinni)
             last = pct;
             char t[64];
             snprintf(t, sizeof(t), TR("Püsivara uuendus: %d %%", "Firmware update: %d %%"), pct);
@@ -410,13 +423,16 @@ static esp_err_t ota_post(httpd_req_t *r)
     if (err == ESP_OK) err = esp_ota_set_boot_partition(part);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "uuendus ebaõnnestus: %s", esp_err_to_name(err));
+        netlog("OTA ebaõnnestus: %s", esp_err_to_name(err));
         s_ota = false;
         {
             LvGuard g;
             ui_ota_progress(-1, err == ESP_ERR_INVALID_ARG ? TR("Vale fail (pole ESP32 püsivara)", "Wrong file (not ESP32 firmware)") : TR("Uuendus ebaõnnestus", "Update failed"));
         }
         httpd_resp_send_err(r, HTTPD_500_INTERNAL_SERVER_ERROR,
-                            err == ESP_ERR_INVALID_ARG ? "vale fail (pole ESP32 püsivara)" : esp_err_to_name(err));
+                            err == ESP_ERR_INVALID_ARG ? "vale fail (pole ESP32 püsivara)"
+                            : err == ESP_ERR_TIMEOUT ? TR("andmete saatmine peatus - proovi uuesti, telefoni ekraan peab olema sees", "upload stalled - try again, keep the phone screen on")
+                                                     : esp_err_to_name(err));
         return ESP_FAIL;
     }
     {
@@ -425,6 +441,145 @@ static esp_err_t ota_post(httpd_req_t *r)
     }
     set_json(r);
     httpd_resp_send(r, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    hard_restart();
+}
+
+// Tükkhaaval üleslaadimine: POST /api/otachunk?off=N&total=T (keha = tükk, kuni 64 KB).
+// Iga tükk on eraldi päring -> kinni jäänud TCP-ühenduse korral kordab brauser ainult seda tükki.
+static esp_ota_handle_t s_oc_h;
+static const esp_partition_t *s_oc_part;
+static int s_oc_next = -1, s_oc_total;
+static int64_t s_oc_t0;
+
+static void oc_reply(httpd_req_t *r, int next, bool done)
+{
+    char b[64];
+    snprintf(b, sizeof(b), "{\"next\":%d,\"done\":%s}", next, done ? "true" : "false");
+    set_json(r);
+    httpd_resp_send(r, b, HTTPD_RESP_USE_STRLEN);
+}
+
+static void oc_fail(const char *msg)
+{
+    if (s_oc_next >= 0) esp_ota_abort(s_oc_h);
+    s_oc_next = -1;
+    s_ota = false;
+    netlog("OTA ebaõnnestus: %s", msg);
+    LvGuard g;
+    ui_ota_progress(-1, TR("Uuendus ebaõnnestus", "Update failed"));
+}
+
+static esp_err_t ota_chunk_post(httpd_req_t *r)
+{
+    int off = qint(r, "off", -1), total = qint(r, "total", 0);
+    int len = r->content_len;
+    if (off < 0 || total <= 0 || len <= 0 || len > 65536 || off + len > total) {
+        httpd_resp_send_err(r, HTTPD_400_BAD_REQUEST, "vale tükk");
+        return ESP_FAIL;
+    }
+    if (off == 0) {
+        // uus algus (ka katkenud eelmise asemel)
+        if (s_oc_next >= 0) esp_ota_abort(s_oc_h);
+        s_oc_next = -1;
+        s_oc_part = esp_ota_get_next_update_partition(nullptr);
+        if (!s_oc_part || total > (int)s_oc_part->size) {
+            httpd_resp_send_err(r, HTTPD_400_BAD_REQUEST, "vale faili suurus");
+            return ESP_FAIL;
+        }
+        if (esp_ota_begin(s_oc_part, OTA_WITH_SEQUENTIAL_WRITES, &s_oc_h) != ESP_OK) {
+            httpd_resp_send_err(r, HTTPD_500_INTERNAL_SERVER_ERROR, "ota_begin");
+            return ESP_FAIL;
+        }
+        s_oc_next = 0;
+        s_oc_total = total;
+        s_oc_t0 = esp_timer_get_time();
+        s_ota = true;
+        shock_arm(false);
+        netlog("OTA (tükid) algus: %d B -> %s", total, s_oc_part->label);
+        LvGuard g;
+        ui_ota_progress(0, TR("Püsivara uuendus: alustan ...", "Firmware update: starting ..."));
+    }
+    bool restart = s_oc_next < 0 || total != s_oc_total;  // pole alustatud -> brauser alustab nihkest 0
+    if (restart || off != s_oc_next) {
+        // brauser kordab juba kirjutatud tükki või on ees: ütle, kust jätkata (keha loe ära)
+        char tmp[512];
+        int left = len;
+        while (left > 0) {
+            int n = httpd_req_recv(r, tmp, left < (int)sizeof(tmp) ? left : (int)sizeof(tmp));
+            if (n <= 0 && n != HTTPD_SOCK_ERR_TIMEOUT) break;
+            if (n > 0) left -= n;
+        }
+        oc_reply(r, restart ? 0 : s_oc_next, false);
+        return ESP_OK;
+    }
+    char *buf = (char *)malloc(len);
+    if (!buf) return httpd_resp_send_500(r);
+    int got = 0, timeouts = 0;
+    while (got < len) {
+        int n = httpd_req_recv(r, buf + got, len - got);
+        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
+            if (++timeouts >= 2) break;
+            continue;
+        }
+        if (n <= 0) break;
+        got += n;
+    }
+    if (got < len) {
+        free(buf);
+        netlog("OTA tükk @%d pooleli (%d/%d B) - brauser kordab", off, got, len);
+        return ESP_FAIL;  // ühendus suletakse; brauser kordab sama tükki
+    }
+    if (off == 0 && (uint8_t)buf[0] != 0xE9) {
+        free(buf);
+        oc_fail("vale fail");
+        httpd_resp_send_err(r, HTTPD_400_BAD_REQUEST, TR("vale fail (pole ESP32 püsivara)", "wrong file (not ESP32 firmware)"));
+        return ESP_FAIL;
+    }
+    esp_err_t e = esp_ota_write(s_oc_h, buf, len);
+    free(buf);
+    if (e != ESP_OK) {
+        oc_fail(esp_err_to_name(e));
+        httpd_resp_send_err(r, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(e));
+        return ESP_FAIL;
+    }
+    int prev_pct = (int)((int64_t)s_oc_next * 100 / total);
+    s_oc_next += len;
+    int pct = (int)((int64_t)s_oc_next * 100 / total);
+    if (pct / 10 != prev_pct / 10) {
+        float sec = (esp_timer_get_time() - s_oc_t0) / 1e6f;
+        netlog("OTA %d %%: %.1f s, %.1f KB/s", pct, sec, s_oc_next / 1024.0f / (sec > 0 ? sec : 1));
+    }
+    bool done = s_oc_next >= total;
+    if (!done) {
+        if (pct != prev_pct) {
+            char t[64];
+            snprintf(t, sizeof(t), TR("Püsivara uuendus: %d %%", "Firmware update: %d %%"), pct);
+            LvGuard g;
+            ui_ota_progress(pct, t);
+        }
+        oc_reply(r, s_oc_next, false);
+        return ESP_OK;
+    }
+    e = esp_ota_end(s_oc_h);
+    s_oc_next = -1;
+    if (e == ESP_OK) e = esp_ota_set_boot_partition(s_oc_part);
+    if (e != ESP_OK) {
+        s_ota = false;
+        netlog("OTA lõpetamine ebaõnnestus: %s", esp_err_to_name(e));
+        {
+            LvGuard g;
+            ui_ota_progress(-1, TR("Uuendus ebaõnnestus (kontrollsumma)", "Update failed (checksum)"));
+        }
+        httpd_resp_send_err(r, HTTPD_500_INTERNAL_SERVER_ERROR, esp_err_to_name(e));
+        return ESP_FAIL;
+    }
+    netlog("OTA valmis, taaskäivitan");
+    {
+        LvGuard g;
+        ui_ota_progress(100, TR("Valmis! Taaskäivitan ...", "Done! Restarting ..."));
+    }
+    oc_reply(r, total, true);
     vTaskDelay(pdMS_TO_TICKS(1500));
     hard_restart();
 }
@@ -552,6 +707,26 @@ static esp_err_t log_get(httpd_req_t *r)
     return httpd_resp_send(r, o.data(), o.size());
 }
 
+// lehe skripti diagnostika: /api/js?e=...
+static esp_err_t js_get(httpd_req_t *r)
+{
+    char q[400] = "", e[340] = "";
+    if (httpd_req_get_url_query_str(r, q, sizeof(q)) == ESP_OK) httpd_query_key_value(q, "e", e, sizeof(e));
+    // %XX dekodeerimine
+    char d[340];
+    int j = 0;
+    for (int i = 0; e[i] && j < (int)sizeof(d) - 1; i++) {
+        if (e[i] == '%' && e[i + 1] && e[i + 2]) {
+            char h[3] = {e[i + 1], e[i + 2], 0};
+            d[j++] = (char)strtol(h, nullptr, 16);
+            i += 2;
+        } else d[j++] = e[i] == '+' ? ' ' : e[i];
+    }
+    d[j] = 0;
+    netlog("JS %s", d);
+    return httpd_resp_send(r, "", 0);
+}
+
 static esp_err_t reboot_get(httpd_req_t *r)
 {
     httpd_resp_send(r, "ok", 2);
@@ -573,7 +748,7 @@ static void http_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.stack_size = 12288;  // OTA kirjutab flash-i: pinu sisemises RAM-is
     cfg.max_uri_handlers = 24;
-    cfg.recv_wait_timeout = 20;
+    cfg.recv_wait_timeout = 10;
     cfg.send_wait_timeout = 20;
     cfg.lru_purge_enable = true;
     cfg.max_open_sockets = 12;
@@ -591,6 +766,8 @@ static void http_start(void)
     reg(s, "/api/delete", HTTP_POST, delete_post);
     reg(s, "/api/fw", HTTP_GET, ota_info);
     reg(s, "/api/ota", HTTP_POST, ota_post);
+    reg(s, "/api/otachunk", HTTP_POST, ota_chunk_post);
+    reg(s, "/api/js", HTTP_GET, js_get);
     reg(s, "/dev/shot", HTTP_GET, shot_get);
     reg(s, "/dev/tap", HTTP_GET, tap_get);
     reg(s, "/dev/sim", HTTP_GET, sim_get);
