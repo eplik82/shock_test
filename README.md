@@ -30,7 +30,7 @@ cd /mnt/c/Claude/shock_test
 Kasutaja: laadi `firmware.bin` alla [Releases](https://github.com/eplik82/shock_test/releases) lehelt,
 ühenda telefon seadme WiFi-ga (`ShockTest-XXXX`, parool on ekraani kollasel real), ava portaal → „Püsivara“ →
 vali fail → „Laadi üles“. Kui uus versioon ei kinnitu 20 s jooksul, taastab alglaadur eelmise.
-Androidi „Logi võrku sisse“ aken (WebView) ei toeta failivalijat → portaal avab end pärast kella sünki ise Chrome'is
+Androidi „Logi võrku sisse“ aken (WebView) ei toeta failivalijat → captive-aknas on ülal riba nupuga „Ava Chrome'is“
 (`intent://4.3.2.1/#Intent;scheme=http;end`); varuvariant on nupp „Ava Chrome'is“ või http://4.3.2.1 käsitsi.
 Üleslaadimine käib 32 KB tükkidena (`/api/otachunk?off=&total=`): kinni jäänud tükki korratakse, protsent = seadmesse
 kirjutatud osa. Ühe pika POST-iga jäi telefonist saatmine ~60 % juures seisma. Testitud Samsung S24+: ~150 s, ~10 KB/s.
