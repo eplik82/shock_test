@@ -136,7 +136,7 @@ $('#fwb').onclick=async()=>{
     }
   }
 };
-if(location.hash==='#fw')document.querySelector('nav button[data-p="fw"]').click();
+{const b=document.querySelector('nav button[data-p="'+location.hash.slice(1)+'"]');if(b)b.click();}  // #dev, #fw
 // captive-aken (Androidi WebView, UA-s "; wv)"): pärast kella sünki ava leht tavalises brauseris (seal töötab failivalija)
 const IN_WV=/; wv\)/.test(navigator.userAgent);
 if(!IN_WV){$('#fwcap').hidden=true;fetch('/api/auth');}  // tavaline brauser: "sisse logitud"

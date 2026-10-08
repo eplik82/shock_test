@@ -1,7 +1,7 @@
 # shock_test
 
 Half-Sine Shock Pulse tester: Waveshare **ESP32-S3-Touch-LCD-4.3** + **ADXL375** (I2C 0x53).
-Lähteülesanne: `LÄHTEÜLESANNE.md`. Standard: MIL-STD-810H Method 516.8 (https://cvgstrategy.com/wp-content/uploads/2019/08/MIL-STD-810H-Method-516.8-Shock.pdf).
+Lähteülesanne: `LÄHTEÜLESANNE.md`. **Kasutusjuhend:** `docs/Kasutusjuhend_shock_test.pdf` (koostamine: `docs/manual/make_manual.py`). Standard: MIL-STD-810H Method 516.8 (https://cvgstrategy.com/wp-content/uploads/2019/08/MIL-STD-810H-Method-516.8-Shock.pdf).
 
 ESP-IDF 5.5.5 + LVGL 9.2 (PlatformIO, `~/.espvenv/bin/pio`). Püsivara versioon: `src/version.h`.
 

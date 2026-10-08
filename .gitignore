@@ -10,3 +10,4 @@ sdkconfig.shock.old
 docs/*.pdf
 .tmp/
 release/
+!docs/Kasutusjuhend_shock_test.pdf
