@@ -30,6 +30,8 @@ cd /mnt/c/Claude/shock_test
 Kasutaja: laadi `firmware.bin` alla [Releases](https://github.com/eplik82/shock_test/releases) lehelt,
 ühenda telefon seadme WiFi-ga (`ShockTest-XXXX`, parool on ekraani kollasel real), ava portaal → „Püsivara“ →
 vali fail → „Laadi üles“. Kui uus versioon ei kinnitu 20 s jooksul, taastab alglaadur eelmise.
+Androidi „Logi võrku sisse“ aken (WebView) ei toeta failivalijat → portaal avab end pärast kella sünki ise Chrome'is
+(`intent://4.3.2.1/#Intent;scheme=http;end`); varuvariant on nupp „Ava Chrome'is“ või http://4.3.2.1 käsitsi.
 
 Väljaanne: `git tag vX.Y.Z && git push origin vX.Y.Z` → GitHub Actions ehitab ja avaldab release'i.
 
