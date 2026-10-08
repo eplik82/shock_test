@@ -220,8 +220,8 @@ static void graph(Pdf &p, float x, float y, float w, float h, const SeriesInfo &
     p.clip_rect(gx, gy, gw, gh);
     // koridor
     std::vector<float> lo, hi, id;
-    for (int k = 0; k <= 120; k++) {
-        float t = tmin + (tmax - tmin) * k / 120;
+    for (int k = 0; k <= 60; k++) {
+        float t = tmin + (tmax - tmin) * k / 60;
         float l, u;
         shock_band(t, A, T, si.band / 100, l, u);
         lo.push_back(X(t)); lo.push_back(Y(l));

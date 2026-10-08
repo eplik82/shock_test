@@ -71,7 +71,7 @@ static std::string esc(const std::string &cp)
 void Pdf::num(float v)
 {
     char b[24];
-    snprintf(b, sizeof(b), "%.2f ", v);
+    snprintf(b, sizeof(b), "%.1f ", v);  // 0,1 pt täpsus piisab (väiksem fail)
     cur() += b;
 }
 

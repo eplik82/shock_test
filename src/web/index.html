@@ -33,7 +33,7 @@ progress{width:100%;height:18px}
 <body>
 <header><h1><span data-t="title">Löögitest</span> <span class="mut">Half-Sine Shock</span></h1><span id="clk" class="mut">…</span></header>
 <div class="note" id="wvbar" hidden style="margin:8px 16px 0"><span data-t="wvtxt">Failide valimiseks ja allalaadimiseks ava leht tavalises brauseris.</span>
-<div class="btns"><a class="b p" href="intent://4.3.2.1/#Intent;scheme=http;end" onclick="BEACON('nupp Chrome')" data-t="openbr">Ava Chrome'is</a></div></div>
+<div class="btns"><a class="b p" href="#" onclick="openChrome();return false;" data-t="openbr">Ava brauseris</a></div></div>
 <nav><button data-p="tests" class="on" data-t="tests">Testid</button><button data-p="dev" data-t="dev">Seade</button><button data-p="fw" data-t="fw">Püsivara</button></nav>
 <main>
 <section id="p-tests" class="card"><div id="tests" class="mut" data-t="loading">Laen …</div>
@@ -44,7 +44,7 @@ progress{width:100%;height:18px}
 <p data-t="fwrepo">Uusim püsivara: <b>github.com/eplik82/shock_test</b> → <i>Releases</i> → <code>firmware.bin</code>. Laadi fail enne seadme WiFi-ga ühendumist telefoni.</p>
 <p data-t="fwhelp">Vali uus püsivara fail (<code>firmware.bin</code>) ja vajuta „Laadi üles“. Seade taaskäivitub ise. Kui uus versioon ei käivitu, taastatakse eelmine automaatselt. Seaded ja testid säilivad.</p>
 <div class="note" id="fwcap"><span data-t="fwcap">Telefoni „Logi võrku sisse“ aknas faili valida ei saa. Ava see leht tavalises brauseris:</span>
-<div class="btns"><a class="b p" href="intent://4.3.2.1/#Intent;scheme=http;end" data-t="openbr">Ava Chrome'is</a><a class="b" href="http://4.3.2.1/#fw" target="_blank">http://4.3.2.1</a></div></div>
+<div class="btns"><a class="b p" href="#" onclick="openChrome();return false;" data-t="openbr">Ava brauseris</a><a class="b" href="http://4.3.2.1/#fw" target="_blank">http://4.3.2.1</a></div></div>
 <input type="file" id="fwf" accept=".bin,application/octet-stream">
 <div class="btns"><button class="b p" id="fwb" data-t="upload">Laadi üles</button></div>
 <div id="fwp" hidden><progress id="fwpr" max="100" value="0"></progress><div id="fwt" class="mut"></div></div>
@@ -60,7 +60,7 @@ const EN={tests:'Tests',dev:'Device',fw:'Firmware',title:'Shock test',loading:'L
 dlhint:'If the download does not start, open this page in a normal browser: <b>http://4.3.2.1</b> (turn off mobile data if needed).',
 fwrepo:'Latest firmware: <b>github.com/eplik82/shock_test</b> → <i>Releases</i> → <code>firmware.bin</code>. Download the file to your phone before connecting to the device WiFi.',
 fwhelp:'Choose the new firmware file (<code>firmware.bin</code>) and press “Upload”. The device restarts by itself. If the new version does not start, the previous one is restored automatically. Settings and tests are kept.',
-upload:'Upload',fwcap:'A file cannot be chosen in the phone\'s “Sign in to network” window. Open this page in a normal browser:',openbr:'Open in Chrome',wvtxt:'To choose or download files, open this page in a normal browser.'};
+upload:'Upload',fwcap:'A file cannot be chosen in the phone\'s “Sign in to network” window. Open this page in a normal browser:',openbr:'Open in browser',wvtxt:'To choose or download files, open this page in a normal browser.'};
 let EN_ON=false;
 const T=(et,en)=>EN_ON?en:et;
 function applyLang(){if(!EN_ON)return;document.documentElement.lang='en';document.title='Shock test';
@@ -139,8 +139,9 @@ $('#fwb').onclick=async()=>{
 if(location.hash==='#fw')document.querySelector('nav button[data-p="fw"]').click();
 // captive-aken (Androidi WebView, UA-s "; wv)"): pärast kella sünki ava leht tavalises brauseris (seal töötab failivalija)
 const IN_WV=/; wv\)/.test(navigator.userAgent);
-if(!IN_WV)$('#fwcap').hidden=true;
+if(!IN_WV){$('#fwcap').hidden=true;fetch('/api/auth');}  // tavaline brauser: "sisse logitud"
 else $('#wvbar').hidden=false;
+async function openChrome(){BEACON('nupp Chrome');try{await fetch('/api/auth');}catch(e){}location.href='intent://4.3.2.1/#Intent;scheme=http;end';}
 sync().then(async()=>{try{const s=await (await fetch('/api/status')).json();EN_ON=s.lang==1;applyLang();}catch(e){}status();tests();
 });
 setInterval(status,3000);

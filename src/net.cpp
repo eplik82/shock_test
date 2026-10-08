@@ -271,7 +271,6 @@ static esp_err_t time_post(httpd_req_t *r)
         httpd_resp_send_err(r, HTTPD_400_BAD_REQUEST, "vale aeg");
         return ESP_FAIL;
     }
-    auth_add(peer_ip(r));
     log_req(r, "kell");
     bool was = clock_valid();
     clock_set(ms, tz);
@@ -287,7 +286,6 @@ static esp_err_t time_post(httpd_req_t *r)
 
 static esp_err_t tests_get(httpd_req_t *r)
 {
-    auth_add(peer_ip(r));
     log_req(r, "testid");
     auto list = store_list();
     std::string o = "[";
@@ -308,31 +306,56 @@ static esp_err_t tests_get(httpd_req_t *r)
     return send_str(r, o);
 }
 
+// Raport saadetakse eraldi lõimes (asünkroonne päring): aeglase WiFi juures kestab 100+ KB saatmine
+// ~10-15 s ja HTTP server (üks lõim) ei vastaks selle aja jooksul lehe teistele päringutele.
+struct ReportJob {
+    httpd_req_t *req;
+    int id;
+    bool csv;
+};
+
+static void report_task(void *arg)
+{
+    ReportJob *j = (ReportJob *)arg;
+    httpd_req_t *r = j->req;
+    std::string out;
+    bool ok = j->csv ? report_csv(j->id, out) : report_pdf(j->id, out);
+    if (!ok) {
+        httpd_resp_send_err(r, HTTPD_404_NOT_FOUND, "seeriat pole");
+    } else {
+        char fn[96];
+        SeriesInfo si;
+        std::vector<ShotRec> sh;
+        store_load(j->id, si, sh);
+        std::string date = si.start_epoch ? clock_fmt(si.start_epoch).substr(0, 10) : "kuupaev";
+        snprintf(fn, sizeof(fn), "attachment; filename=\"shock_test_%04d_%s.%s\"", j->id, date.c_str(), j->csv ? "csv" : "pdf");
+        httpd_resp_set_type(r, j->csv ? "text/csv; charset=utf-8" : "application/pdf");
+        httpd_resp_set_hdr(r, "Content-Disposition", fn);
+        int64_t t0 = esp_timer_get_time();
+        esp_err_t e = httpd_resp_send(r, out.data(), out.size());
+        float sec = (esp_timer_get_time() - t0) / 1e6f;
+        if (e == ESP_OK) netlog("raport %u B saadetud: %.1f s, %.1f KB/s", (unsigned)out.size(), sec, out.size() / 1024.0f / (sec > 0 ? sec : 1));
+        else netlog("raporti saatmine katkes: %s (%.1f s)", esp_err_to_name(e), sec);
+    }
+    httpd_req_async_handler_complete(r);
+    delete j;
+    vTaskDelete(nullptr);
+}
+
 static esp_err_t report_get(httpd_req_t *r)
 {
     int id = qint(r, "id", 0);
     bool csv = qint(r, "csv", 0) != 0;
-    std::string out;
-    bool ok = csv ? report_csv(id, out) : report_pdf(id, out);
-    if (!ok) {
-        httpd_resp_send_err(r, HTTPD_404_NOT_FOUND, "seeriat pole");
-        return ESP_FAIL;
+    log_req(r, csv ? "raport CSV" : "raport PDF");
+    httpd_req_t *ar = nullptr;
+    if (httpd_req_async_handler_begin(r, &ar) != ESP_OK) return httpd_resp_send_500(r);
+    ReportJob *j = new ReportJob{ar, id, csv};
+    // pinu PSRAM-is ei sobi (flash-lugemine LittleFS-ist), seega sisemine 8 KB
+    if (xTaskCreatePinnedToCore(report_task, "report", 8192, j, 4, nullptr, 0) != pdPASS) {
+        httpd_req_async_handler_complete(ar);
+        delete j;
     }
-    char fn[96];
-    SeriesInfo si;
-    std::vector<ShotRec> sh;
-    store_load(id, si, sh);
-    std::string date = si.start_epoch ? clock_fmt(si.start_epoch).substr(0, 10) : "kuupaev";
-    snprintf(fn, sizeof(fn), "attachment; filename=\"shock_test_%04d_%s.%s\"", id, date.c_str(), csv ? "csv" : "pdf");
-    httpd_resp_set_type(r, csv ? "text/csv; charset=utf-8" : "application/pdf");
-    httpd_resp_set_hdr(r, "Content-Disposition", fn);
-    char what[48];
-    snprintf(what, sizeof(what), "raport %u B", (unsigned)out.size());
-    log_req(r, what);
-    // Content-Length (mitte tükkidena): allalaadimishaldurid eelistavad teadaolevat suurust
-    esp_err_t e = httpd_resp_send(r, out.data(), out.size());
-    if (e != ESP_OK) netlog("raporti saatmine katkes: %s", esp_err_to_name(e));
-    return e;
+    return ESP_OK;
 }
 
 static esp_err_t delete_post(httpd_req_t *r)
@@ -727,6 +750,16 @@ static esp_err_t js_get(httpd_req_t *r)
     return httpd_resp_send(r, "", 0);
 }
 
+// "Sisselogimine": nupp "Ava Chrome'is" või leht tavalises brauseris. Alles siis vastatakse kliendi
+// internetikontrollidele 204 - captive-aknas tekitaks 204 (HTTPS-kontroll ebaõnnestub) "osalise ühenduvuse"
+// ja Samsung viskab WiFi-st välja.
+static esp_err_t auth_get(httpd_req_t *r)
+{
+    auth_add(peer_ip(r));
+    log_req(r, "sisse logitud");
+    return httpd_resp_send(r, "", 0);
+}
+
 static esp_err_t reboot_get(httpd_req_t *r)
 {
     httpd_resp_send(r, "ok", 2);
@@ -768,6 +801,7 @@ static void http_start(void)
     reg(s, "/api/ota", HTTP_POST, ota_post);
     reg(s, "/api/otachunk", HTTP_POST, ota_chunk_post);
     reg(s, "/api/js", HTTP_GET, js_get);
+    reg(s, "/api/auth", HTTP_GET, auth_get);
     reg(s, "/dev/shot", HTTP_GET, shot_get);
     reg(s, "/dev/tap", HTTP_GET, tap_get);
     reg(s, "/dev/sim", HTTP_GET, sim_get);

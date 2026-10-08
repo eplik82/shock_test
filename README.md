@@ -30,7 +30,7 @@ cd /mnt/c/Claude/shock_test
 Kasutaja: laadi `firmware.bin` alla [Releases](https://github.com/eplik82/shock_test/releases) lehelt,
 ühenda telefon seadme WiFi-ga (`ShockTest-XXXX`, parool on ekraani kollasel real), ava portaal → „Püsivara“ →
 vali fail → „Laadi üles“. Kui uus versioon ei kinnitu 20 s jooksul, taastab alglaadur eelmise.
-Androidi „Logi võrku sisse“ aken (WebView) ei toeta failivalijat → captive-aknas on ülal riba nupuga „Ava Chrome'is“
+Androidi „Logi võrku sisse“ aken (WebView) ei toeta failivalijat → captive-aknas on ülal riba nupuga „Ava brauseris“ (avab vaikebrauseri)
 (`intent://4.3.2.1/#Intent;scheme=http;end`); varuvariant on nupp „Ava Chrome'is“ või http://4.3.2.1 käsitsi.
 Üleslaadimine käib 32 KB tükkidena (`/api/otachunk?off=&total=`): kinni jäänud tükki korratakse, protsent = seadmesse
 kirjutatud osa. Ühe pika POST-iga jäi telefonist saatmine ~60 % juures seisma. Testitud Samsung S24+: ~150 s, ~10 KB/s.
@@ -77,3 +77,7 @@ Ilma andurita töötab seade simulatsioonirežiimis (1 g Z-teljel + müra); `sim
 - Captive portaal: DHCP peab pakkuma DNS-i (valik enne aadressi), muidu Android „ühendatud ilma internetita“.
   Pärast portaali lehe laadimist vastatakse kliendi internetikontrollidele 204/Success, et telefon jääks võrku.
 - Pärast USB-välgutust võib plaat jääda vaikseks → kaabel välja ja tagasi.
+- Captive-aknas vastatakse internetikontrollile 302 (sisselogimine nõutav). 204 („internet olemas“) alles pärast nuppu
+  „Ava brauseris“ või lehe avamist tavalises brauseris (`/api/auth`) — captive-aknas tekitas 204 „osalise ühenduvuse“
+  (HTTPS-kontroll ebaõnnestub) ja Samsung viskas WiFi-st välja.
+- Raportid saadetakse eraldi lõimes (asünkroonne päring), leht vastab allalaadimise ajal. PDF ~87 KB / ~6 s.
